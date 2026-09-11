@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "specset"
+version = "0.0.1"
+description = "Toolkit for manipulation of a set of mass spectra"
+authors = [
+    { name = "Thang Pham", email = "tp210901@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+specset = "specset.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["specset*"]
