@@ -1,10 +1,6 @@
 import re
 import pandas as pd
 
-def hello_world():
-    print("Hello, world")
-
-
 _FRAG_BAD = {"", "acK", "acK*", "H13 C8 N O5"}
 _FRAG_SKIP = {"pY", "a2"}
 _FRAG_PATTERN = re.compile(r'^([a-z])([0-9]+)(\*|\-H2O|\-NH3|\-CO|\-H4COS)?(\([0-9]+\+\))?$')
@@ -160,8 +156,8 @@ def psm_utils_to_specset(msms_file, out_dir, evidence_file=None, max_files_in_di
             yield {
                 "pep":         pep,
                 "z":           psm.peptidoform.precursor_charge,
-                "rt":         psm.retention_time,
-                "im":         im,
+                "rt":          psm.retention_time,
+                "im":          im,
                 "score":       psm.score,
                 "id":          psm.run,
                 "matches":     psm.metadata["Matches"],
@@ -320,20 +316,6 @@ def diannlib_to_specset(diannlib_file, out_dir, max_no_files_per_directory=5000)
 
 def psmlist_to_specset(psmlist_file, out_dir, max_files_in_directory=5000):
     """Read a list of files containing stripped MaxQuant PSMs and write to the specset directory format."""
-    '''
-    run
-    . venv_specset/bin/activate
-    python
-    #import pandas as pd
-    
-    from specset.utils import psmlist_to_specset
-    psmlist_file = "/d0/tp/sitenet/data2/_files-phospho-260413.tsv"
-    out_dir = "/d0/tp/sitenet/data2/phosphopeptides.specset"
-    psmlist_to_specset(psmlist_file, out_dir)
-    print("Done")
-    result = 20313563
-    Done.
-    '''
     import pandas as pd
 
     def psm_iter():
@@ -473,53 +455,11 @@ def specset_to_alphapeptdeep_string(specset_dir, n=None):
 
                     string_buffer = io.StringIO()
                     frag_df.to_csv(string_buffer, sep="\t", index=False, header=first)
-                    #first = False
+
                     yield string_buffer
 
             i += 1
-
-    #return string_buffer
-
-def specset_to_speclib_alphapep(specset_dir, lib_name, scratch=None):
-    """Convert a specset directory to a spectral library TSV (equivalent of psm_to_speclib in psm.py)."""
-    """
-    from specset.utils import specset_to_speclib
-    specset_to_speclib("/home/tpham/data/ai_storage/data/tmp/out.specset", "/home/tpham/data/ai_storage/data/tmp/out.speclib.tsv")
-    """
-
-    from alphabase.spectral_library.reader import LibraryReaderBase
-    from alphabase.peptide.fragment import create_fragment_mz_dataframe
-    from alphabase.spectral_library.base import SpecLibBase
-    from peptdeep.spec_lib.translate import translate_to_tsv, mod_to_unimod_dict
-
-    string_buffer = _specset_to_string(specset_dir, scratch)
-
-    lib = LibraryReaderBase()
-    psm_df = lib.import_file(string_buffer)
-
-    frag_types = lib.fragment_intensity_df.columns.to_list()
-    fragment_mz_df = create_fragment_mz_dataframe(psm_df, frag_types)
-
-    speclib = SpecLibBase()
-    speclib.precursor_df = psm_df
-    speclib._fragment_intensity_df = lib.fragment_intensity_df
-    speclib._fragment_mz_df = fragment_mz_df
-
-    if "decoy" in speclib.precursor_df.columns:
-        speclib._precursor_df = speclib.precursor_df[speclib.precursor_df.decoy == 0]
-
-    translate_to_tsv(
-        speclib,
-        lib_name,
-        keep_k_highest_fragments=100000,
-        min_frag_nAA=0,
-        min_frag_mz=200,
-        min_frag_intensity=0.001,
-        batch_size=100000,
-        translate_mod_dict=mod_to_unimod_dict,
-        multiprocessing=False,
-    )
-
+    
 
 def _read_location(location_dir, extra=[]):
     """Read all PSM files in a specset location directory.
@@ -719,7 +659,7 @@ def specset_to_speclib(specset_dir, lib_name, additional_columns={}, consensus_m
 def _specset_to_string(specset_dir, scratch=None):
     import io
     import pandas as pd
-    #from tqdm import tqdm
+    
 
     index_df = pd.read_csv(specset_dir + "/_index.tsv", header=None, names=['peptide', 'location'], sep="\t")
 
@@ -728,8 +668,7 @@ def _specset_to_string(specset_dir, scratch=None):
 
     display = max(scratch // 20, 1)
     string_buffer = io.StringIO()
-
-    #for i in tqdm(range(scratch), desc="Reading specset"):
+    
     for i in range(scratch):
         if i % display == 0:
             print(f"{int((i+1) * 100 / scratch)}%")        
@@ -754,44 +693,100 @@ def _specset_to_string(specset_dir, scratch=None):
     return string_buffer
 
 
+def merge_specsets(specset_a, specset_b, max_files_in_directory=5000, mode="both"):
+    """Merge specset_b into specset_a in place.
 
-def specset_to_speclib_alphabase(specset_dir, lib_name, scratch=None):
-    """Convert a specset directory to a spectral library TSV (equivalent of psm_to_speclib in psm.py)."""
-    from alphabase.spectral_library.reader import LibraryReaderBase
-    from alphabase.peptide.fragment import create_fragment_mz_dataframe
-    from alphabase.spectral_library.base import SpecLibBase
-    from peptdeep.spec_lib.translate import translate_to_tsv, mod_to_unimod_dict
+    Peptides new to specset_a are added under a new location. For a peptide
+    present in both, mode controls the behavior:
+        'both'   : keep the existing PSM files and add the ones from specset_b.
+        'ignore' : keep only the existing PSM files, skip the ones from specset_b.
+    """
+    import os
 
-    string_buffer = _specset_to_string(specset_dir, scratch)
+    index_file = os.path.join(specset_a, "_index.tsv")
 
-    lib = LibraryReaderBase()
-    psm_df = lib.import_file(string_buffer)
+    pep_dict = {}
+    with open(index_file) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                continue
+            pep_dict[parts[0]] = parts[1]
 
-    #print(psm_df.columns)
-    #if "RT" not in psm_df.columns:
-    #    psm_df["RT"] = 0.0
-    #if "mobility" not in psm_df.columns:
-    #    psm_df["mobility"] = psm_df["IM"].astype(float) if "IM" in psm_df.columns else 0
+    existing_peps = set(pep_dict)
 
-    frag_types = lib.fragment_intensity_df.columns.to_list()
-    fragment_mz_df = create_fragment_mz_dataframe(psm_df, frag_types)
+    max_i = -1
+    for location in pep_dict.values():
+        with open(os.path.join(specset_a, location, "__index.tsv")) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                max_i = max(max_i, int(line.split(maxsplit=1)[0]))
 
-    speclib = SpecLibBase()
-    speclib.precursor_df = psm_df
-    speclib._fragment_intensity_df = lib.fragment_intensity_df
-    speclib._fragment_mz_df = fragment_mz_df
+    i = max_i + 1
+    start = (i // max_files_in_directory) * max_files_in_directory
+    folder_name = f"{start}-{start + max_files_in_directory - 1}"
+    os.makedirs(os.path.join(specset_a, folder_name), exist_ok=True)
 
-    if "decoy" in speclib.precursor_df.columns:
-        speclib._precursor_df = speclib.precursor_df[speclib.precursor_df.decoy == 0]
+    new_peps = []
 
-    translate_to_tsv(
-        speclib,
-        lib_name,
-        keep_k_highest_fragments=100000,
-        min_frag_nAA=0,
-        min_frag_mz=200,
-        min_frag_intensity=0.001,
-        batch_size=100000,
-        translate_mod_dict=mod_to_unimod_dict,
-        multiprocessing=False,
-    )
+    with open(f"{specset_b}/_index.tsv") as index2_file:
+        for line in index2_file:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                continue
+            location = parts[1]
+
+            with open(f"{specset_b}/{location}/__index.tsv") as content_file:
+                for line2 in content_file:
+                    line2 = line2.rstrip("\n")
+                    if not line2:
+                        continue
+                    file_name = line2.split(maxsplit=1)[0]
+
+                    psm = {}
+                    with open(f"{specset_b}/{location}/{file_name}.tsv") as psm_file:
+                        for psm_line in psm_file:
+                            kv = psm_line.rstrip("\n").split("\t", maxsplit=1)
+                            psm[kv[0]] = kv[1] if len(kv) == 2 else ""
+
+                    pep = psm["pep"]
+
+                    if mode == "ignore" and pep in existing_peps:
+                        continue
+
+                    if pep not in pep_dict:
+                        pep_dict[pep] = f"{folder_name}/{i}"
+                        new_peps.append(pep)
+                        os.makedirs(os.path.join(specset_a, pep_dict[pep]), exist_ok=True)
+
+                    dir_name = os.path.join(specset_a, pep_dict[pep])
+
+                    with open(os.path.join(dir_name, f"{i}.tsv"), "w", newline="") as f:
+                        for key, value in psm.items():
+                            f.write(f"{key}\t{value}\n")
+
+                    with open(os.path.join(dir_name, "__index.tsv"), "a") as f:
+                        f.write(f"{i}\t{psm['z']}\n")
+
+                    i += 1
+                    if i % max_files_in_directory == 0:
+                        folder_name = f"{i}-{i + max_files_in_directory - 1}"
+                        os.makedirs(os.path.join(specset_a, folder_name), exist_ok=True)
+
+    if new_peps:
+        with open(index_file, "a", newline="") as f:
+            for pep in new_peps:
+                f.write(f"{pep}\t{pep_dict[pep]}\n")
+
+    with open(index_file, "w", newline="") as f:
+        for key, value in pep_dict.items():
+            f.write(f"{key}\t{value}\n")
+

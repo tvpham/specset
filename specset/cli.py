@@ -1,5 +1,8 @@
 import argparse
-from .utils import hello_world
+
+
+def hello_world():
+    print("Hello, world")
 
 
 def main():
