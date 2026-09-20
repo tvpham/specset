@@ -1048,3 +1048,38 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
     with open(index_file, "w", newline="") as f:
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
+
+
+def summarize(specset_a: str, specset_b: Optional[str] = None) -> None:
+    """
+    Print summary statistics for one or two specset directories.
+
+    Parameters
+    ----------
+    specset_a : str
+        Path to the first specset directory.
+    specset_b : str, optional
+        Path to a second specset directory. If given, also reports the
+        peptide overlap and differences between the two specsets.
+
+    Returns
+    -------
+    None
+        Prints statistics to stdout.
+    """
+    peps_a = {pep for pep, _ in iter_specset_locations(specset_a)}
+    print(f"{specset_a}: {len(peps_a)} peptides")
+
+    if specset_b is None:
+        return
+
+    peps_b = {pep for pep, _ in iter_specset_locations(specset_b)}
+    print(f"{specset_b}: {len(peps_b)} peptides")
+
+    overlap = peps_a & peps_b
+    only_a = peps_a - peps_b
+    only_b = peps_b - peps_a
+
+    print(f"Overlap: {len(overlap)} peptides")
+    print(f"Only in {specset_a}: {len(only_a)} peptides")
+    print(f"Only in {specset_b}: {len(only_b)} peptides")
