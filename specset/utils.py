@@ -149,7 +149,7 @@ def matches_intensities_to_psm(matches: str, intensities: str, sep: str = ";", m
     return df
 
 
-def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0) -> None:
+def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000) -> None:
     """
     Write a stream of PSMs to the specset directory format.
     
@@ -163,7 +163,9 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
         Number of PSM files permitted per batch folder. Default is 5000.
     max_intensity : float, optional
         Max intensity for normalization. Default is -1.0 (no normalization).
-        
+    flush_threshold : int, optional
+        Number of PSMs to buffer before flushing to disk. Default is 1000.
+
     Returns
     -------
     None
@@ -180,13 +182,10 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
     folder_name = f"0-{max_files_in_directory - 1}"
     (out_path / folder_name).mkdir(exist_ok=True)
 
-    # Dictionary to buffer __index.tsv lines for batch writing
     index_buffer = defaultdict(list)
     buffer_size = 0
-    FLUSH_THRESHOLD = 50000  # Adjust based on memory availability
 
     def flush_index_buffer():
-        """Writes accumulated __index.tsv lines to disk and clears the buffer."""
         for dir_path, lines in index_buffer.items():
             with open(dir_path / "__index.tsv", "a") as f:
                 f.write("".join(lines))
@@ -198,8 +197,7 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
 
         if d is not None:
             pep = psm["pep"]
-            
-            # Build specset metadata dict
+
             specset = {
                 "pep": pep,
                 "z":   psm["z"],
@@ -207,50 +205,41 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
                 "rt": psm["rt"],
                 "im": psm["im"],
             }
-            
-            # Add remaining non-core keys
+
             for key, value in psm.items():
                 if key not in core_keys:
                     specset[key] = value
 
-            # Setup peptide directory if it's new
             if pep not in pep_dict:
                 pep_dict[pep] = f"{folder_name}/{i}"
                 dir_path = out_path / pep_dict[pep]
                 dir_path.mkdir(parents=True, exist_ok=True)
-                
-                # Ensure clean slate for new peptide directories
+
                 content_name = dir_path / "__index.tsv"
                 if content_name.exists():
                     content_name.unlink()
-            
+
             dir_path = out_path / pep_dict[pep]
 
-            # Write the individual PSM file
             with open(dir_path / f"{i}.tsv", "w", newline="") as f:
                 for key, value in specset.items():
                     f.write(f"{key}\t{value}\n")
 
-            # Queue the index line in memory instead of immediately opening the file
             index_buffer[dir_path].append(f"{i}\t{psm['z']}\n")
             buffer_size += 1
 
-            # Periodically flush to disk to save memory
-            if buffer_size >= FLUSH_THRESHOLD:
+            if buffer_size >= flush_threshold:
                 buffer_size = flush_index_buffer()
 
             i += 1
-            
-            # Rotate batch folder if file limit reached
+
             if i % max_files_in_directory == 0:
                 folder_name = f"{i}-{i + max_files_in_directory - 1}"
                 (out_path / folder_name).mkdir(exist_ok=True)
 
-    # Final flush of any remaining buffered index lines
     if index_buffer:
         flush_index_buffer()
 
-    # Write the main _index.tsv file
     with open(index_file, "w", newline="") as f:
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
@@ -918,7 +907,7 @@ def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.St
     return string_buffer
 
 
-def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both") -> None:
+def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
     """
     Merge specset_b into specset_a in place.
 
@@ -932,6 +921,8 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
         Path to the secondary specset directory to merge from.
     max_files_in_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
+    flush_threshold : int, optional
+        Number of PSMs to buffer before flushing to disk. Default is 1000.
     mode : str, optional
         'both'   : keep the existing PSM files and add the ones from specset_b.
         'ignore' : keep only the existing PSM files, skip the ones from specset_b.
@@ -946,29 +937,32 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
     path_b = Path(specset_b)
     index_file = path_a / "_index.tsv"
 
+    if not index_file.exists():
+        raise FileNotFoundError(f"specset_a has no _index.tsv: {index_file}")
+
     pep_dict = {}
-    if index_file.exists():
-        with open(index_file) as f:
-            for line in f:
-                line = line.rstrip("\n")
-                if not line:
-                    continue
-                parts = line.split(maxsplit=1)
-                if len(parts) == 2:
-                    pep_dict[parts[0]] = parts[1]
+    with open(index_file) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                pep_dict[parts[0]] = parts[1]
 
     existing_peps = set(pep_dict)
 
     max_i = -1
     for location in pep_dict.values():
         index2_path = path_a / location / "__index.tsv"
-        if index2_path.exists():
-            with open(index2_path) as f:
-                for line in f:
-                    line = line.rstrip("\n")
-                    if not line:
-                        continue
-                    max_i = max(max_i, int(line.split(maxsplit=1)[0]))
+        if not index2_path.exists():
+            raise FileNotFoundError(f"specset_a location '{location}' has no __index.tsv: {index2_path}")
+        with open(index2_path) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                max_i = max(max_i, int(line.split(maxsplit=1)[0]))
 
     i = max_i + 1
     start = (i // max_files_in_directory) * max_files_in_directory
@@ -977,7 +971,6 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
 
     index_buffer = defaultdict(list)
     buffer_size = 0
-    FLUSH_THRESHOLD = 50000
 
     def flush_index_buffer():
         for dir_path, lines in index_buffer.items():
@@ -988,9 +981,8 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
 
     index_b = path_b / "_index.tsv"
     if not index_b.exists():
-        return
+        raise FileNotFoundError(f"specset_b has no _index.tsv: {index_b}")
 
-    # Process specset_b
     with open(index_b) as index2_file:
         for line in index2_file:
             line = line.rstrip("\n")
@@ -1012,7 +1004,6 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
                         continue
                     file_name = line2.split(maxsplit=1)[0]
 
-                    # Parse individual PSM file from specset_b
                     psm = {}
                     psm_file_path = path_b / location / f"{file_name}.tsv"
                     with open(psm_file_path) as psm_file:
@@ -1021,34 +1012,32 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
                             psm[kv[0]] = kv[1] if len(kv) == 2 else ""
 
                     if "pep" not in psm:
-                        continue
+                        raise KeyError(f"PSM file missing required 'pep' field: {psm_file_path}")
+                    if "z" not in psm:
+                        raise KeyError(f"PSM file missing required 'z' field: {psm_file_path}")
                     pep = psm["pep"]
 
                     if mode == "ignore" and pep in existing_peps:
                         continue
 
-                    # Setup new peptide directory if not encountered yet
                     if pep not in pep_dict:
                         pep_dict[pep] = f"{folder_name}/{i}"
                         (path_a / pep_dict[pep]).mkdir(parents=True, exist_ok=True)
 
                     dir_path = path_a / pep_dict[pep]
 
-                    # Write the transferred PSM file
                     with open(dir_path / f"{i}.tsv", "w", newline="") as f:
                         for key, value in psm.items():
                             f.write(f"{key}\t{value}\n")
 
-                    # Queue the index line in memory
-                    index_buffer[dir_path].append(f"{i}\t{psm.get('z', '')}\n")
+                    index_buffer[dir_path].append(f"{i}\t{psm['z']}\n")
                     buffer_size += 1
 
-                    if buffer_size >= FLUSH_THRESHOLD:
+                    if buffer_size >= flush_threshold:
                         buffer_size = flush_index_buffer()
 
                     i += 1
-                    
-                    # Rotate batch folder if limits reached
+
                     if i % max_files_in_directory == 0:
                         folder_name = f"{i}-{i + max_files_in_directory - 1}"
                         (path_a / folder_name).mkdir(parents=True, exist_ok=True)
@@ -1059,4 +1048,3 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
     with open(index_file, "w", newline="") as f:
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
-
