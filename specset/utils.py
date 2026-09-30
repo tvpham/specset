@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import shutil
 import pandas as pd
 import pyarrow.parquet as pq
 from pathlib import Path
@@ -907,7 +908,98 @@ def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.St
     return string_buffer
 
 
-def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
+def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
+    """
+    Merge specset_a and specset_b into a new specset at specset_out.
+
+    specset_a and specset_b are left unchanged. PSMs are renumbered from 0 in
+    specset_out, PSMs from specset_a first, then those from specset_b.
+
+    Parameters
+    ----------
+    specset_a : str
+        Path to the primary specset directory.
+    specset_b : str
+        Path to the secondary specset directory.
+    specset_out : str
+        Path to the output specset directory. Must not exist or be empty.
+    max_files_in_directory : int, optional
+        Maximum number of files per batch directory. Default is 5000.
+    mode : str, optional
+        'both'   : for overlapping ones, keep both PSMs in specset_a and specset_b.
+        'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b.
+    flush_threshold : int, optional
+        Number of PSMs to buffer before flushing to disk. Default is 1000.
+
+    Returns
+    -------
+    None
+        Writes directly to disk in specset_out.
+    """
+    if mode not in ("both", "ignore"):
+        raise ValueError(f"mode must be 'both' or 'ignore', got {mode!r}")
+
+    path_a = Path(specset_a)
+    path_b = Path(specset_b)
+    out_path = Path(specset_out)
+
+    if out_path.resolve() in (path_a.resolve(), path_b.resolve()):
+        raise ValueError("specset_out must differ from specset_a and specset_b; use merge_specsets_inplace for in-place merging")
+    if out_path.exists() and any(out_path.iterdir()):
+        raise FileExistsError(f"specset_out is not empty: {out_path}")
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    locations_a = list(iter_specset_locations(specset_a))
+    locations_b = list(iter_specset_locations(specset_b))
+    if mode == "ignore":
+        peps_a = {pep for pep, _ in locations_a}
+        locations_b = [(pep, loc) for pep, loc in locations_b if pep not in peps_a]
+    sources = [(path_a, pep, loc) for pep, loc in locations_a] + [(path_b, pep, loc) for pep, loc in locations_b]
+
+    display = max(len(sources) // 20, 1)
+    pep_dict = {}
+    index_buffer = defaultdict(list)
+    buffer_size = 0
+    i = 0
+
+    def flush_index_buffer():
+        for dir_path, lines in index_buffer.items():
+            with open(dir_path / "__index.tsv", "a") as f:
+                f.write("".join(lines))
+        index_buffer.clear()
+        return 0
+
+    for k, (src_path, pep, location) in enumerate(sources):
+        if k % display == 0:
+            print(f"{int((k+1) * 100 / len(sources))}%")
+
+        with open(src_path / location / "__index.tsv") as index2:
+            for line2 in index2:
+                parts = line2.split()
+                if not parts:
+                    continue
+                file_name, z = parts[0], parts[1]
+
+                if pep not in pep_dict:
+                    start = (i // max_files_in_directory) * max_files_in_directory
+                    pep_dict[pep] = f"{start}-{start + max_files_in_directory - 1}/{i}"
+                    (out_path / pep_dict[pep]).mkdir(parents=True)
+
+                dir_path = out_path / pep_dict[pep]
+                shutil.copyfile(src_path / location / f"{file_name}.tsv", dir_path / f"{i}.tsv")
+                index_buffer[dir_path].append(f"{i}\t{z}\n")
+                buffer_size += 1
+                if buffer_size >= flush_threshold:
+                    buffer_size = flush_index_buffer()
+                i += 1
+
+    flush_index_buffer()
+
+    with open(out_path / "_index.tsv", "w", newline="") as f:
+        for key, value in pep_dict.items():
+            f.write(f"{key}\t{value}\n")
+
+def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
     """
     Merge specset_b into specset_a in place.
 
@@ -924,8 +1016,8 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
     flush_threshold : int, optional
         Number of PSMs to buffer before flushing to disk. Default is 1000.
     mode : str, optional
-        'both'   : keep the existing PSM files and add the ones from specset_b.
-        'ignore' : keep only the existing PSM files, skip the ones from specset_b.
+        'both'   : for overlapping ones, keep both PSMs in specset_a and specset_b.
+        'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b.
 
     Returns
     -------
@@ -983,11 +1075,19 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
     if not index_b.exists():
         raise FileNotFoundError(f"specset_b has no _index.tsv: {index_b}")
 
+    with open(index_b) as f:
+        scratch = sum(1 for line in f if line.strip())
+    display = max(scratch // 20, 1)
+    k = 0
+
     with open(index_b) as index2_file:
         for line in index2_file:
             line = line.rstrip("\n")
             if not line:
                 continue
+            if k % display == 0:
+                print(f"{int((k+1) * 100 / scratch)}%")
+            k += 1
             parts = line.split(maxsplit=1)
             if len(parts) != 2:
                 continue
@@ -1049,7 +1149,6 @@ def merge_specsets(specset_a: str, specset_b: str, max_files_in_directory: int =
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
 
-
 def summarize(specset_a: str, specset_b: Optional[str] = None) -> None:
     """
     Print summary statistics for one or two specset directories.
@@ -1068,18 +1167,18 @@ def summarize(specset_a: str, specset_b: Optional[str] = None) -> None:
         Prints statistics to stdout.
     """
     peps_a = {pep for pep, _ in iter_specset_locations(specset_a)}
-    print(f"{specset_a}: {len(peps_a)} peptides")
+    print(f"{specset_a}: {len(peps_a)} modified peptides")
 
     if specset_b is None:
         return
 
     peps_b = {pep for pep, _ in iter_specset_locations(specset_b)}
-    print(f"{specset_b}: {len(peps_b)} peptides")
+    print(f"{specset_b}: {len(peps_b)} modified peptides")
 
     overlap = peps_a & peps_b
     only_a = peps_a - peps_b
     only_b = peps_b - peps_a
 
-    print(f"Overlap: {len(overlap)} peptides")
-    print(f"Only in {specset_a}: {len(only_a)} peptides")
-    print(f"Only in {specset_b}: {len(only_b)} peptides")
+    print(f"Overlap: {len(overlap)} modified peptides")
+    print(f"Only in {specset_a}: {len(only_a)} modified peptides")
+    print(f"Only in {specset_b}: {len(only_b)} modified peptides")
