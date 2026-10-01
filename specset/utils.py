@@ -597,7 +597,6 @@ def specset_to_alphapeptdeep_string(specset_dir: str, n: Optional[int] = None) -
     _cols = ["FragmentLossType", "FragmentNumber", "FragmentType", "FragmentCharge", "RelativeIntensity"]
 
     
-    first = True
     specset_path = Path(specset_dir)
 
     for location, file_name, _ in iter_specset_files(specset_dir, n):
@@ -621,10 +620,10 @@ def specset_to_alphapeptdeep_string(specset_dir: str, n: Optional[int] = None) -
         frag_df["IonMobility"] = float(a["im"]) if "im" in a else 0
 
         string_buffer = io.StringIO()
-        frag_df.to_csv(string_buffer, sep="\t", index=False, header=first)
+        frag_df.to_csv(string_buffer, sep="\t", index=False, header=True)
 
         yield string_buffer
-        first = False
+        
     
 
 def _read_location(location_dir: str, extra: List[str] = []) -> Dict[str, List[pd.DataFrame]]:
