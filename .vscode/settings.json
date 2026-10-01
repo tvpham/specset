@@ -1,8 +1,0 @@
-{
-    "python-envs.workspaceSearchPaths": [
-        ".venv",
-        "*/.venv",
-        "/home/tpham/a/workspace/venv_specset"
-    ],
-    "git.ignoreLimitWarning": true
-}
