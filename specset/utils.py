@@ -339,12 +339,11 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
     """
 
     print("Reading msms.txt...")
-    #msms_df = pd.read_csv(txt_dir.rstrip("/") + "/msms.txt", sep="\t", usecols=["Modified sequence", "Charge", "Retention time", "Matches", "Intensities", "Evidence ID"] + list(additional_columns.keys()), dtype={"Matches": str, "Intensities": str}, keep_default_na=False)
-    msms_df = pd.read_csv(txt_dir.rstrip("/") + "/msms.txt", sep="\t", usecols=["Modified sequence", "Charge", "Retention time", "Matches", "Intensities", "Evidence ID"] + list(additional_columns.keys()), dtype=str, keep_default_na=False)
+    msms_df = pd.read_csv(Path(txt_dir) / "msms.txt", sep="\t", usecols=["Modified sequence", "Charge", "Retention time", "Matches", "Intensities", "Evidence ID"] + list(additional_columns.keys()), dtype=str, keep_default_na=False)
     msms_df = msms_df.rename(columns=lambda c: c.replace(" ", "_"))
 
     print("Reading evidence.txt...")
-    evidence_df = pd.read_csv(txt_dir.rstrip("/") + "/evidence.txt", sep="\t", usecols=["id", "1/K0"], index_col="id", dtype={"id": str})
+    evidence_df = pd.read_csv(Path(txt_dir) / "evidence.txt", sep="\t", usecols=["id", "1/K0"], index_col="id", dtype={"id": str})
 
     has_im = "1/K0" in evidence_df.columns
     has_reverse = "Reverse" in msms_df.columns
@@ -388,7 +387,7 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
     _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory)
 
     print(f"n = {n_rows}")
-    print("\nDone.")
+    print("Done.")
 
 
 def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directory: int = 5000) -> None:
@@ -434,6 +433,8 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
             }
 
     _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory)
+
+    print("\nDone.")
 
 
 def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000) -> None:
@@ -1195,18 +1196,18 @@ def summarize(specset_a: str, specset_b: Optional[str] = None) -> None:
         Prints statistics to stdout.
     """
     peps_a = {pep for pep, _ in iter_specset_locations(specset_a)}
-    print(f"{specset_a}: {len(peps_a)} modified peptides")
+    print(f"\n{specset_a}: {len(peps_a)} modified peptides")
 
     if specset_b is None:
         return
 
     peps_b = {pep for pep, _ in iter_specset_locations(specset_b)}
-    print(f"{specset_b}: {len(peps_b)} modified peptides")
+    print(f"\n{specset_b}: {len(peps_b)} modified peptides")
 
     overlap = peps_a & peps_b
     only_a = peps_a - peps_b
     only_b = peps_b - peps_a
 
-    print(f"Overlap: {len(overlap)} modified peptides")
+    print(f"\nOverlap: {len(overlap)} modified peptides")
     print(f"Only in {specset_a}: {len(only_a)} modified peptides")
     print(f"Only in {specset_b}: {len(only_b)} modified peptides")
