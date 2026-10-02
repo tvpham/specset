@@ -363,7 +363,7 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
             n_rows += 1
 
             if n_rows % 1000 == 0:
-                    print(f"n = {n_rows}", end = '\r')
+                print(f"n = {n_rows}", end = '\r')
 
             pep = (psm.Modified_sequence[1:-1].replace("(Phospho (STY))", "(UniMod:21)")
                    .replace("(Acetyl (Protein N-term))", "(UniMod:1)")
@@ -409,10 +409,16 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
         Writes directly to disk.
     """
     df = pd.read_csv(easypqp_file, sep="\t", usecols=["ModifiedPeptideSequence", "PrecursorCharge", "FragmentLossType", "FragmentSeriesNumber", "FragmentType", "FragmentCharge", "LibraryIntensity", "NormalizedRetentionTime", "PrecursorIonMobility", "ProteinId", "GeneName"])
+    total_rows = len(df)
+    print(f"Total rows: {total_rows}")
 
     loss_to_mq = {"noloss": "", "H3PO4": "*", "NH3": "-NH3", "H2O": "-H2O"}
 
     def psm_iter():
+        rows_done = 0
+        report_step = max(total_rows // 20, 1)
+        next_report = report_step
+
         for (pep, z), group in df.groupby(["ModifiedPeptideSequence", "PrecursorCharge"]):
             matches = []
             intensities = []
@@ -432,9 +438,14 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
                 "GeneName":          group["GeneName"].iloc[0],
             }
 
+            rows_done += len(group)
+            if rows_done >= next_report or rows_done == total_rows:
+                print(f"  {rows_done}/{total_rows} rows ({100*rows_done//total_rows}%)", end="\r")
+                next_report += report_step
+
     _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory)
 
-    print("\nDone.")
+    print("Done.")
 
 
 def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000) -> None:
@@ -513,7 +524,7 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
 
     _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory)
     
-    print("\nDone.")
+    print("Done.")
 
 
 def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000) -> None:
