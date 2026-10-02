@@ -147,77 +147,6 @@ def matches_intensities_to_psm(matches: str, intensities: str, sep: str = ";", m
 
     return df
 
-
-def _psm_stream_to_specset(psm_iter, out_dir, max_files_in_directory=5000, max_intensity=-1):
-    """Write a stream of PSMs to the specset directory format.
-
-    Parameters
-    ----------
-    psm_iter : iterable of dict
-        Each dict must have keys: pep, z, rt, im, matches, intensities        
-    out_dir : str
-        Output specset directory.
-    max_files_in_directory : int
-        Number of PSM files per batch folder.
-    """
-    import os
-
-    core_keys = {"pep", "z", "rt", "im", "matches", "intensities"}
-
-    os.makedirs(out_dir, exist_ok=True)
-    index_file = os.path.join(out_dir, "_index.tsv")
-
-    pep_dict = {}
-    i = 0
-    start = 0
-    folder_name = f"0-{max_files_in_directory - 1}"
-    os.makedirs(os.path.join(out_dir, folder_name), exist_ok=True)
-
-    for psm in psm_iter:
-        
-        d = matches_intensities_to_psm(psm["matches"], psm["intensities"], max_intensity = max_intensity)
-
-        if d is not None:
-            pep = psm["pep"]        
-            specset = {
-                "pep": pep,
-                "z":   psm["z"],
-                "ms2": d.to_csv(sep=",", lineterminator=";", index=False, header=False),
-                "rt": psm["rt"],
-                "im": psm["im"],
-            }
-            for key, value in psm.items():
-                if key not in core_keys:
-                    specset[key] = value
-
-            if pep not in pep_dict:
-                pep_dict[pep] = f"{folder_name}/{i}"
-                dir_name = os.path.join(out_dir, pep_dict[pep])
-                os.makedirs(dir_name, exist_ok=True)
-                content_name = os.path.join(dir_name, "__index.tsv")
-                if os.path.exists(content_name):
-                    os.remove(content_name)
-
-            dir_name = os.path.join(out_dir, pep_dict[pep])
-
-            with open(os.path.join(dir_name, f"{i}.tsv"), "w", newline="") as f:
-                for key, value in specset.items():
-                    f.write(f"{key}\t{value}\n")
-
-            with open(os.path.join(dir_name, "__index.tsv"), "a") as f:
-                f.write(f"{i}\t{psm['z']}\n")
-
-            i += 1
-            if i % max_files_in_directory == 0:
-                start = i
-                folder_name = f"{start}-{start + max_files_in_directory - 1}"
-                os.makedirs(os.path.join(out_dir, folder_name), exist_ok=True)
-
-    with open(index_file, "w", newline="") as f:
-        for key, value in pep_dict.items():
-            f.write(f"{key}\t{value}\n")
-
-
 def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000) -> None:
     """
     Write a stream of PSMs to the specset directory format.
@@ -1037,7 +966,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
 
-    print("\nDone.")
+    print("Done.")
 
 def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
     """
