@@ -178,7 +178,9 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
     if out_path.exists() and any(out_path.iterdir()):
         if not overwrite:
             raise FileExistsError(f"out_dir is not empty: {out_path}")
+        print(f"Output path exists. Removing {out_path}...")
         shutil.rmtree(out_path)
+    print(f"Creating {out_path}...")
     out_path.mkdir(parents=True, exist_ok=True)
     index_file = out_path / "_index.tsv"
 
@@ -612,7 +614,6 @@ def specset_to_alphapeptdeep_string(specset_dir: str, n: Optional[int] = None) -
         yield string_buffer
         
     
-
 def _read_location(location_dir: str, extra: List[str] = []) -> Dict[str, List[pd.DataFrame]]:
     """
     Read all PSM files in a specific specset location directory.
@@ -792,7 +793,7 @@ def specset_to_speclib(specset_dir: str, lib_name: str, additional_columns: Dict
     index_path = specset_path / "_index.tsv"
     with open(index_path) as f:
         total = sum(1 for line in f if line.strip())
-    print(f"Total peptides: {total}")
+    print(f"Number of peptides = {total}")
 
     n_peps = 0
 
@@ -830,7 +831,7 @@ def specset_to_speclib(specset_dir: str, lib_name: str, additional_columns: Dict
             n_peps += 1
             print(f"  {n_peps}/{total} ({100*n_peps//total}%)", end="\r")
     
-    print("\nDone.")
+    print("Done.")
 
 
 def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.StringIO:
