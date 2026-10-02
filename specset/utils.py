@@ -147,7 +147,7 @@ def matches_intensities_to_psm(matches: str, intensities: str, sep: str = ";", m
 
     return df
 
-def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000, overwrite: bool = True) -> None:
+def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000, overwrite: bool = False) -> None:
     """
     Write a stream of PSMs to the specset directory format.
     
@@ -252,7 +252,7 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
             f.write(f"{key}\t{value}\n")
 
 
-def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str, str] = {}, max_files_in_directory: int = 5000, n: int = -1, overwrite: bool = True) -> None:
+def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str, str] = {}, max_files_in_directory: int = 5000, n: int = -1, overwrite: bool = False) -> None:
     """
     Read MaxQuant msms.txt and evidence.txt files and write to specset format.
 
@@ -331,7 +331,7 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
     print("Done.")
 
 
-def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = True) -> None:
+def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
     """
     Convert an EasyPQP formatted file to the specset directory format.
 
@@ -392,7 +392,7 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
     print("Done.")
 
 
-def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = True) -> None:
+def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
     """
     Convert a DIA-NN library parquet file to the specset directory format.
 
@@ -474,7 +474,7 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
     print("Done.")
 
 
-def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = True) -> None:
+def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
     """
     Read a list of files containing stripped MaxQuant PSMs and write to specset format.
 
@@ -895,7 +895,7 @@ def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.St
     return string_buffer
 
 
-def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
+def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000, overwrite: bool = False) -> None:
     """
     Merge specset_a and specset_b into a new specset at specset_out.
 
@@ -909,7 +909,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
     specset_b : str
         Path to the secondary specset directory.
     specset_out : str
-        Path to the output specset directory. Must not exist or be empty.
+        Path to the output specset directory.
     max_files_in_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
     mode : str, optional
@@ -917,6 +917,9 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b.
     flush_threshold : int, optional
         Number of PSMs to buffer before flushing to disk. Default is 1000.
+    overwrite : bool, optional
+        If True, delete an existing specset_out before writing. If False, raise
+        FileExistsError when specset_out exists and is not empty. Default is True.
 
     Returns
     -------
@@ -930,10 +933,14 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
     path_b = Path(specset_b)
     out_path = Path(specset_out)
 
-    if out_path.resolve() in (path_a.resolve(), path_b.resolve()):
-        raise ValueError("specset_out must differ from specset_a and specset_b; use merge_specsets_inplace for in-place merging")
+    for path in (path_a, path_b):
+        if path.resolve() == out_path.resolve() or out_path.resolve() in path.resolve().parents:
+            raise ValueError(f"specset_out must not be or contain an input specset: {path}; use merge_specsets_inplace for in-place merging")
     if out_path.exists() and any(out_path.iterdir()):
-        raise FileExistsError(f"specset_out is not empty: {out_path}")
+        if not overwrite:
+            raise FileExistsError(f"specset_out is not empty: {out_path}")
+        print(f"Removing {out_path}...")
+        shutil.rmtree(out_path)
     out_path.mkdir(parents=True, exist_ok=True)
 
     locations_a = list(iter_specset_locations(specset_a))
