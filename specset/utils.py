@@ -389,7 +389,7 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
 
     _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory, overwrite=overwrite)
 
-    print("Done.")
+    print("\nDone.")
 
 
 def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
@@ -471,7 +471,7 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
 
     _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory, overwrite=overwrite)
     
-    print("Done.")
+    print("\nDone.")
 
 
 def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
@@ -831,7 +831,7 @@ def specset_to_speclib(specset_dir: str, lib_name: str, additional_columns: Dict
             n_peps += 1
             print(f"  {n_peps}/{total} ({100*n_peps//total}%)", end="\r")
     
-    print("Done.")
+    print("\nDone.")
 
 
 def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.StringIO:
@@ -951,6 +951,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
     sources = [(path_a, pep, loc) for pep, loc in locations_a] + [(path_b, pep, loc) for pep, loc in locations_b]
 
     display = max(len(sources) // 20, 1)
+
     pep_dict = {}
     index_buffer = defaultdict(list)
     buffer_size = 0
@@ -993,7 +994,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
 
-    print("Done.")
+    print("\nDone.")
 
 def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
     """
