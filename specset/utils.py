@@ -7,6 +7,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Iterator, Optional, Dict, List, Tuple, Any, Iterable
 
+
 from .mz import get_ion_mz, get_precursor_mz, generate_aa_mass
 
 _FRAG_BAD = {"", "acK", "acK*", "H13 C8 N O5"}
@@ -165,7 +166,7 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
         Number of PSMs to buffer before flushing to disk. Default is 1000.
     overwrite : bool, optional
         If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is True.
+        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -252,6 +253,60 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
             f.write(f"{key}\t{value}\n")
 
 
+def psm_utils_to_specset(msms_file: str, out_dir: str, evidence_file: Optional[str] = None, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
+    """
+    Read a MaxQuant msms.txt file and write it to the specset directory format.
+
+    Parameters
+    ----------
+    msms_file : str
+        Path to the MaxQuant msms.txt file.
+    out_dir : str
+        Output directory path for the specset.
+    evidence_file : str, optional
+        Path to an optional evidence.txt file to extract ion mobility (1/K0).
+    max_files_in_directory : int, optional
+        Maximum number of PSMs per folder batch. Default is 5000.
+    overwrite : bool, optional
+        If True, delete an existing out_dir before writing. If False, raise
+        FileExistsError when out_dir exists and is not empty. Default is False.
+
+    Returns
+    -------
+    None
+        Writes directly to disk.
+    """
+
+    from psm_utils.io.maxquant import MSMSReader
+    
+    psm_list = MSMSReader(msms_file).read_file()
+
+    evidence_file_df = None
+    if evidence_file is not None:
+        evidence_file_df = pd.read_csv(evidence_file, sep="\t", index_col="id", dtype={"id": str}, low_memory=False)
+
+    def psm_iter():
+        for psm in psm_list:
+            pep = (psm.peptidoform.modified_sequence
+                   .replace("[Phospho (STY)]", "(UniMod:21)")
+                   .replace("[Acetyl (Protein N-term)]-", "(UniMod:1)")
+                   .replace("[Oxidation (M)]", "(UniMod:35)")
+                   .replace("C", "C(UniMod:4)"))
+            im = 0 if evidence_file_df is None else evidence_file_df.loc[psm.metadata["Evidence ID"]]["1/K0"]
+            yield {
+                "pep":         pep,
+                "z":           psm.peptidoform.precursor_charge,
+                "rt":          psm.retention_time,
+                "im":          im,
+                "score":       psm.score,
+                "id":          psm.run,
+                "matches":     psm.metadata["Matches"],
+                "intensities": psm.metadata["Intensities"],
+            }
+
+    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory, overwrite=overwrite)
+
+
 def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str, str] = {}, max_files_in_directory: int = 5000, n: int = -1, overwrite: bool = False) -> None:
     """
     Read MaxQuant msms.txt and evidence.txt files and write to specset format.
@@ -271,7 +326,7 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
         Maximum number of rows to process. Default is -1 (all rows).
     overwrite : bool, optional
         If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is True.
+        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -345,7 +400,7 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
         Maximum number of files per batch directory. Default is 5000.
     overwrite : bool, optional
         If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is True.
+        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -406,7 +461,7 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
         Maximum number of files per batch directory. Default is 5000.
     overwrite : bool, optional
         If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is True.
+        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -488,7 +543,7 @@ def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: 
         Maximum number of files per batch directory. Default is 5000.
     overwrite : bool, optional
         If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is True.
+        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -919,7 +974,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         Number of PSMs to buffer before flushing to disk. Default is 1000.
     overwrite : bool, optional
         If True, delete an existing specset_out before writing. If False, raise
-        FileExistsError when specset_out exists and is not empty. Default is True.
+        FileExistsError when specset_out exists and is not empty. Default is False.
 
     Returns
     -------
