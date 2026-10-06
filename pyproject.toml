@@ -13,8 +13,12 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 dependencies = ["pandas", "lxml", "pyteomics"]
 
+[project.optional-dependencies]
+gui = ["PySide6"]
+
 [project.scripts]
 specset = "specset.cli:main"
+specset-gui = "specset.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["specset*"]
