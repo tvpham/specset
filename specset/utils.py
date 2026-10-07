@@ -148,6 +148,102 @@ def matches_intensities_to_psm(matches: str, intensities: str, sep: str = ";", m
 
     return df
 
+class _specset_writer:
+    """
+    Write PSMs one at a time to the specset directory format.
+
+    Call add() for each PSM and close() at the end. See _psm_stream_to_specset for the parameters.
+    """
+
+    _CORE_KEYS = {"pep", "z", "rt", "im", "matches", "intensities"}
+
+    def __init__(self, out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000, overwrite: bool = False) -> None:
+        self.out_path = Path(out_dir)
+        if self.out_path.exists() and any(self.out_path.iterdir()):
+            if not overwrite:
+                raise FileExistsError(f"out_dir is not empty: {self.out_path}")
+            print(f"Output path exists. Removing {self.out_path}...")
+            shutil.rmtree(self.out_path)
+        print(f"Creating {self.out_path}...")
+        self.out_path.mkdir(parents=True, exist_ok=True)
+
+        self.max_files_in_directory = max_files_in_directory
+        self.max_intensity = max_intensity
+        self.flush_threshold = flush_threshold
+
+        self.pep_dict = {}
+        self.i = 0
+        self.folder_name = f"0-{max_files_in_directory - 1}"
+        (self.out_path / self.folder_name).mkdir(exist_ok=True)
+
+        self.index_buffer = defaultdict(list)
+        self.buffer_size = 0
+
+    def _flush_index_buffer(self) -> None:
+        for dir_path, lines in self.index_buffer.items():
+            with open(dir_path / "__index.tsv", "a") as f:
+                f.write("".join(lines))
+        self.index_buffer.clear()
+        self.buffer_size = 0
+
+    def add(self, psm: Dict[str, Any]) -> None:
+        """Write one PSM; PSMs without valid fragments are skipped."""
+        d = matches_intensities_to_psm(psm["matches"], psm["intensities"], max_intensity=self.max_intensity)
+
+        if d is None:
+            return
+
+        pep = psm["pep"]
+
+        specset = {
+            "pep": pep,
+            "z":   psm["z"],
+            "ms2": d.to_csv(sep=",", lineterminator=";", index=False, header=False),
+            "rt": psm["rt"],
+            "im": psm["im"],
+        }
+
+        for key, value in psm.items():
+            if key not in self._CORE_KEYS:
+                specset[key] = value
+
+        if pep not in self.pep_dict:
+            self.pep_dict[pep] = f"{self.folder_name}/{self.i}"
+            dir_path = self.out_path / self.pep_dict[pep]
+            dir_path.mkdir(parents=True, exist_ok=True)
+
+            content_name = dir_path / "__index.tsv"
+            if content_name.exists():
+                content_name.unlink()
+
+        dir_path = self.out_path / self.pep_dict[pep]
+
+        with open(dir_path / f"{self.i}.tsv", "w", newline="") as f:
+            for key, value in specset.items():
+                f.write(f"{key}\t{value}\n")
+
+        self.index_buffer[dir_path].append(f"{self.i}\t{psm['z']}\n")
+        self.buffer_size += 1
+
+        if self.buffer_size >= self.flush_threshold:
+            self._flush_index_buffer()
+
+        self.i += 1
+
+        if self.i % self.max_files_in_directory == 0:
+            self.folder_name = f"{self.i}-{self.i + self.max_files_in_directory - 1}"
+            (self.out_path / self.folder_name).mkdir(exist_ok=True)
+
+    def close(self) -> None:
+        """Flush the remaining index lines and write _index.tsv."""
+        if self.index_buffer:
+            self._flush_index_buffer()
+
+        with open(self.out_path / "_index.tsv", "w", newline="") as f:
+            for key, value in self.pep_dict.items():
+                f.write(f"{key}\t{value}\n")
+
+
 def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000, overwrite: bool = False) -> None:
     """
     Write a stream of PSMs to the specset directory format.
@@ -173,84 +269,10 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
     None
         Writes directly to disk.
     """
-    
-    core_keys = {"pep", "z", "rt", "im", "matches", "intensities"}
-    out_path = Path(out_dir)
-    if out_path.exists() and any(out_path.iterdir()):
-        if not overwrite:
-            raise FileExistsError(f"out_dir is not empty: {out_path}")
-        print(f"Output path exists. Removing {out_path}...")
-        shutil.rmtree(out_path)
-    print(f"Creating {out_path}...")
-    out_path.mkdir(parents=True, exist_ok=True)
-    index_file = out_path / "_index.tsv"
-
-    pep_dict = {}
-    i = 0
-    folder_name = f"0-{max_files_in_directory - 1}"
-    (out_path / folder_name).mkdir(exist_ok=True)
-
-    index_buffer = defaultdict(list)
-    buffer_size = 0
-
-    def flush_index_buffer():
-        for dir_path, lines in index_buffer.items():
-            with open(dir_path / "__index.tsv", "a") as f:
-                f.write("".join(lines))
-        index_buffer.clear()
-        return 0
-
+    writer = _specset_writer(out_dir, max_files_in_directory, max_intensity, flush_threshold, overwrite)
     for psm in psm_iter:
-        d = matches_intensities_to_psm(psm["matches"], psm["intensities"], max_intensity=max_intensity)
-
-        if d is not None:
-            pep = psm["pep"]
-
-            specset = {
-                "pep": pep,
-                "z":   psm["z"],
-                "ms2": d.to_csv(sep=",", lineterminator=";", index=False, header=False),
-                "rt": psm["rt"],
-                "im": psm["im"],
-            }
-
-            for key, value in psm.items():
-                if key not in core_keys:
-                    specset[key] = value
-
-            if pep not in pep_dict:
-                pep_dict[pep] = f"{folder_name}/{i}"
-                dir_path = out_path / pep_dict[pep]
-                dir_path.mkdir(parents=True, exist_ok=True)
-
-                content_name = dir_path / "__index.tsv"
-                if content_name.exists():
-                    content_name.unlink()
-
-            dir_path = out_path / pep_dict[pep]
-
-            with open(dir_path / f"{i}.tsv", "w", newline="") as f:
-                for key, value in specset.items():
-                    f.write(f"{key}\t{value}\n")
-
-            index_buffer[dir_path].append(f"{i}\t{psm['z']}\n")
-            buffer_size += 1
-
-            if buffer_size >= flush_threshold:
-                buffer_size = flush_index_buffer()
-
-            i += 1
-
-            if i % max_files_in_directory == 0:
-                folder_name = f"{i}-{i + max_files_in_directory - 1}"
-                (out_path / folder_name).mkdir(exist_ok=True)
-
-    if index_buffer:
-        flush_index_buffer()
-
-    with open(index_file, "w", newline="") as f:
-        for key, value in pep_dict.items():
-            f.write(f"{key}\t{value}\n")
+        writer.add(psm)
+    writer.close()
 
 
 def psm_utils_to_specset(msms_file: str, out_dir: str, evidence_file: Optional[str] = None, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
@@ -504,7 +526,7 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
         current_rows = []
         rows_done = 0
 
-        for batch in pf.iter_batches(batch_size=100_000):
+        for batch in pf.iter_batches(batch_size=10000):
             chunk = batch.to_pandas()
             chunk.columns = chunk.columns.str.replace(".", "_", regex=False)
             for row in chunk.itertuples(index=False):
@@ -527,6 +549,117 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
     _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory, overwrite=overwrite)
     
     print("\nDone.")
+
+
+def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
+    """
+    Convert a DIA-NN report parquet file to one specset per run.
+
+    The report is read once. Each row (one precursor in one run) becomes one PSM in the
+    specset of its run, out_dir/<Run>.specset, where the characters / \\ : * ? " < > | and whitespace
+    in the run name are replaced by "_" (and _2, _3, ... is added if two runs get the same name). Fragments are taken from the Fr.N.Id and
+    Fr.N.Quantity columns, e.g. "y8-unknown^1/816.403259"; fragments with an empty id or a
+    zero quantity are skipped. Decoy rows are skipped.
+
+    Parameters
+    ----------
+    diannreport : str
+        Path to the DIA-NN report parquet file.
+    out_dir : str
+        Output directory; one <Run>.specset subdirectory is created per run.
+    max_no_files_per_directory : int, optional
+        Maximum number of files per batch directory. Default is 5000.
+    overwrite : bool, optional
+        If True, delete an existing <Run>.specset before writing it. If False, raise
+        FileExistsError when a <Run>.specset exists and is not empty. Default is False.
+
+    Returns
+    -------
+    None
+        Writes directly to disk.
+    """
+
+    import pyarrow.parquet as pq
+
+    pf = pq.ParquetFile(diannreport)
+    total_rows = pf.metadata.num_rows
+    print(f"Total rows: {total_rows}")
+
+    n_frags = sum(1 for name in pf.schema_arrow.names if re.fullmatch(r"Fr\.\d+\.Id", name))
+    columns = ["Run", "Modified.Sequence", "Precursor.Charge", "RT", "IM", "Q.Value", "Decoy", "Ms2.Scan", "Protein.Ids", "Genes"]
+    columns += [f"Fr.{i}.{field}" for i in range(n_frags) for field in ("Id", "Quantity")]
+
+    # fragment id: type, number, loss, charge, m/z, e.g. "y8-unknown^1/816.403259"
+    frag_id_pattern = re.compile(r"^([a-z])(\d+)-([^^]+)\^(\d+)/")
+    loss_to_mq = {"unknown": "", "noloss": "", "H3PO4": "*", "NH3": "-NH3", "H2O": "-H2O"}
+
+    out_path = Path(out_dir)
+    writers = {}  # run -> _specset_writer
+    used_names = set()
+
+    def specset_name(run):
+        """Specset directory name for a run: special characters replaced by '_', made unique."""
+        name = re.sub(r'[\\/:*?"<>|\s]', "_", str(run))
+        unique, n = name, 1
+        while unique in used_names:
+            n += 1
+            unique = f"{name}_{n}"
+        used_names.add(unique)
+        return f"{unique}.specset"
+    rows_done = 0
+
+    try:
+        for batch in pf.iter_batches(batch_size=10000, columns=columns):
+            chunk = batch.to_pandas()
+            for values in chunk.itertuples(index=False, name=None):
+                row = dict(zip(columns, values))
+                if row["Decoy"]:
+                    continue
+
+                matches = []
+                intensities = []
+                for i in range(n_frags):
+                    frag_id = row[f"Fr.{i}.Id"]
+                    quantity = row[f"Fr.{i}.Quantity"]
+                    if not frag_id or not quantity or quantity != quantity:  # empty, zero or NaN
+                        continue
+                    m = frag_id_pattern.match(frag_id)
+                    if m is None or m.group(3) not in loss_to_mq:
+                        continue
+                    frag_type, frag_number, frag_loss, frag_charge = m.groups()
+                    charge_str = f"({frag_charge}+)" if int(frag_charge) > 1 else ""
+                    matches.append(f"{frag_type}{frag_number}{loss_to_mq[frag_loss]}{charge_str}")
+                    intensities.append(str(quantity))
+
+                if not matches:
+                    continue
+
+                run = row["Run"]
+                if run not in writers:
+                    print()
+                    writers[run] = _specset_writer(out_path / specset_name(run), max_no_files_per_directory, overwrite=overwrite)
+
+                writers[run].add({
+                    "pep":         row["Modified.Sequence"],
+                    "z":           row["Precursor.Charge"],
+                    "rt":          row["RT"],
+                    "im":          row["IM"],
+                    "matches":     ";".join(matches),
+                    "intensities": ";".join(intensities),
+                    "run":         run,
+                    "scan":        row["Ms2.Scan"],
+                    "qvalue":      row["Q.Value"],
+                    "proteins":    row["Protein.Ids"],
+                    "genes":       row["Genes"],
+                })
+
+            rows_done += len(chunk)
+            print(f"  {rows_done}/{total_rows} rows ({100*rows_done//total_rows}%)", end="\r")
+    finally:
+        for writer in writers.values():
+            writer.close()
+
+    print(f"\nDone. {len(writers)} specsets written to {out_path}")
 
 
 def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:

@@ -68,6 +68,17 @@ COMMANDS = [
         ],
     },
     {
+        "func": "diannreport_to_specset",
+        "title": "DIA-NN report → specsets",
+        "help": "Convert a DIA-NN parquet report to one specset per run, named <Run>.specset in the output directory.",
+        "fields": [
+            ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
+            ("out_dir", "Output directory", OUT_DIR, {"parent": True}),
+            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
+            ("overwrite", "Overwrite output", BOOL, {"tooltip": "Delete a <Run>.specset first if it exists and is not empty. If unchecked, a non-empty <Run>.specset is an error."}),
+        ],
+    },
+    {
         "func": "psmlist_to_specset",
         "title": "PSM list → specset",
         "help": "Convert a list of files containing stripped MaxQuant PSMs to a specset.",
@@ -240,11 +251,11 @@ class _CommandPage(QWidget):
         return kwargs
 
     def output_dir(self, kwargs):
-        """Return the output directory of this command, if it has one."""
-        for name, (kind, _, _) in self.widgets.items():
+        """Return (output directory, whether it is a parent of the output specsets), or (None, False)."""
+        for name, (kind, opts, _) in self.widgets.items():
             if kind == OUT_DIR:
-                return kwargs.get(name)
-        return None
+                return kwargs.get(name), opts.get("parent", False)
+        return None, False
 
     def _label(self, name):
         return next(label for n, label, _, _ in self.command["fields"] if n == name)
@@ -1100,10 +1111,13 @@ class _ToolsWidget(QWidget):
         if self.thread is not None:
             return
 
-        out_dir = self.pages.currentWidget().output_dir(kwargs)
+        out_dir, is_parent = self.pages.currentWidget().output_dir(kwargs)
         if kwargs.get("overwrite") and out_dir and Path(out_dir).is_dir() and any(Path(out_dir).iterdir()):
-            answer = QMessageBox.question(self, "Overwrite output?",
-                                          f"{out_dir}\n\nexists and is not empty. All of its contents will be deleted. Continue?")
+            if is_parent:
+                message = f"{out_dir}\n\nis not empty. Existing specsets in it with the same name as an output specset will be deleted. Continue?"
+            else:
+                message = f"{out_dir}\n\nexists and is not empty. All of its contents will be deleted. Continue?"
+            answer = QMessageBox.question(self, "Overwrite output?", message)
             if answer != QMessageBox.StandardButton.Yes:
                 return
 

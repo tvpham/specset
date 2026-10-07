@@ -30,6 +30,13 @@ def _cmd_diannlib_to_specset(args):
                         overwrite=args.overwrite)
 
 
+def _cmd_diannreport_to_specset(args):
+    from .utils import diannreport_to_specset
+
+    diannreport_to_specset(args.diannreport, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
+                           overwrite=args.overwrite)
+
+
 def _cmd_psmlist_to_specset(args):
     from .utils import psmlist_to_specset
 
@@ -99,6 +106,14 @@ def main():
     _add_max_files(p)
     _add_overwrite(p)
     p.set_defaults(func=_cmd_diannlib_to_specset)
+
+    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to one specset per run")
+    p.add_argument("diannreport", help="DIA-NN report parquet file")
+    p.add_argument("out_dir", help="Output directory; one <Run>.specset is created per run")
+    _add_max_files(p)
+    p.add_argument("--overwrite", action="store_true",
+                   help="Delete a <Run>.specset first if it exists and is not empty (default: fail)")
+    p.set_defaults(func=_cmd_diannreport_to_specset)
 
     p = subparsers.add_parser("psmlist_to_specset", help="Convert a list of files containing stripped MaxQuant PSMs to a specset")
     p.add_argument("psmlist_file", help="Text file with one PSM file path per line")
