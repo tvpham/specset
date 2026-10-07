@@ -34,7 +34,7 @@ def _cmd_diannreport_to_specset(args):
     from .utils import diannreport_to_specset
 
     diannreport_to_specset(args.diannreport, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
-                           overwrite=args.overwrite)
+                           overwrite=args.overwrite, by_Run=args.by_Run)
 
 
 def _cmd_psmlist_to_specset(args):
@@ -107,12 +107,13 @@ def main():
     _add_overwrite(p)
     p.set_defaults(func=_cmd_diannlib_to_specset)
 
-    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to one specset per run")
+    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to a specset, or one specset per run")
     p.add_argument("diannreport", help="DIA-NN report parquet file")
-    p.add_argument("out_dir", help="Output directory; one <Run>.specset is created per run")
+    p.add_argument("out_dir", help="Output specset directory; with --by-Run, the directory in which one <Run>.specset is created per run")
     _add_max_files(p)
+    p.add_argument("--by-Run", dest="by_Run", action="store_true", help="Create one specset per run (default: one specset with all runs)")
     p.add_argument("--overwrite", action="store_true",
-                   help="Delete a <Run>.specset first if it exists and is not empty (default: fail)")
+                   help="Delete an output specset first if it exists and is not empty (default: fail)")
     p.set_defaults(func=_cmd_diannreport_to_specset)
 
     p = subparsers.add_parser("psmlist_to_specset", help="Convert a list of files containing stripped MaxQuant PSMs to a specset")

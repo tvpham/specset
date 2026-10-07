@@ -69,13 +69,16 @@ COMMANDS = [
     },
     {
         "func": "diannreport_to_specset",
-        "title": "DIA-NN report → specsets",
-        "help": "Convert a DIA-NN parquet report to one specset per run, named <Run>.specset in the output directory.",
+        "title": "DIA-NN report → specset",
+        "help": "Convert a DIA-NN parquet report to a specset. With 'One specset per run', create one specset per run, "
+                "named <Run>.specset in the output directory.",
         "fields": [
             ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
-            ("out_dir", "Output directory", OUT_DIR, {"parent": True}),
+            ("out_dir", "Output specset", OUT_DIR, {"parent_if": "by_Run",
+                                                    "tooltip": "With 'One specset per run', the directory in which the <Run>.specset directories are created."}),
+            ("by_Run", "One specset per run", BOOL, {}),
             ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("overwrite", "Overwrite output", BOOL, {"tooltip": "Delete a <Run>.specset first if it exists and is not empty. If unchecked, a non-empty <Run>.specset is an error."}),
+            ("overwrite", "Overwrite output", BOOL, {"tooltip": "Delete an output specset first if it exists and is not empty. If unchecked, a non-empty output specset is an error."}),
         ],
     },
     {
@@ -254,7 +257,7 @@ class _CommandPage(QWidget):
         """Return (output directory, whether it is a parent of the output specsets), or (None, False)."""
         for name, (kind, opts, _) in self.widgets.items():
             if kind == OUT_DIR:
-                return kwargs.get(name), opts.get("parent", False)
+                return kwargs.get(name), opts.get("parent", False) or bool(kwargs.get(opts.get("parent_if", "")))
         return None, False
 
     def _label(self, name):

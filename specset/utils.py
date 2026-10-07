@@ -551,13 +551,14 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
     print("\nDone.")
 
 
-def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
+def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False, by_Run: bool = False) -> None:
     """
-    Convert a DIA-NN report parquet file to one specset per run.
+    Convert a DIA-NN report parquet file to a specset, or to one specset per run.
 
-    The report is read once. Each row (one precursor in one run) becomes one PSM in the
-    specset of its run, out_dir/<Run>.specset, where the characters / \\ : * ? " < > | and whitespace
-    in the run name are replaced by "_" (and _2, _3, ... is added if two runs get the same name). Fragments are taken from the Fr.N.Id and
+    The report is read once. Each row (one precursor in one run) becomes one PSM. With by_Run,
+    the PSMs of each run go to their own specset, out_dir/<Run>.specset, where the characters
+    / \\ : * ? " < > | and whitespace in the run name are replaced by "_" (and _2, _3, ... is
+    added if two runs get the same name). Fragments are taken from the Fr.N.Id and
     Fr.N.Quantity columns, e.g. "y8-unknown^1/816.403259"; fragments with an empty id or a
     zero quantity are skipped. Decoy rows are skipped.
 
@@ -566,12 +567,14 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
     diannreport : str
         Path to the DIA-NN report parquet file.
     out_dir : str
-        Output directory; one <Run>.specset subdirectory is created per run.
+        Output specset directory; with by_Run, the directory in which one <Run>.specset is created per run.
     max_no_files_per_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
     overwrite : bool, optional
-        If True, delete an existing <Run>.specset before writing it. If False, raise
-        FileExistsError when a <Run>.specset exists and is not empty. Default is False.
+        If True, delete an existing output specset before writing it. If False, raise
+        FileExistsError when an output specset exists and is not empty. Default is False.
+    by_Run : bool, optional
+        If True, create one specset per run in out_dir. Default is False (one specset with all runs).
 
     Returns
     -------
@@ -594,7 +597,7 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
     loss_to_mq = {"unknown": "", "noloss": "", "H3PO4": "*", "NH3": "-NH3", "H2O": "-H2O"}
 
     out_path = Path(out_dir)
-    writers = {}  # run -> _specset_writer
+    writers = {}  # run (None without by_Run) -> _specset_writer
     used_names = set()
 
     def specset_name(run):
@@ -606,6 +609,9 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
             unique = f"{name}_{n}"
         used_names.add(unique)
         return f"{unique}.specset"
+
+    if not by_Run:
+        writers[None] = _specset_writer(out_path, max_no_files_per_directory, overwrite=overwrite)
     rows_done = 0
 
     try:
@@ -635,11 +641,12 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
                     continue
 
                 run = row["Run"]
-                if run not in writers:
+                key = run if by_Run else None
+                if key not in writers:
                     print()
-                    writers[run] = _specset_writer(out_path / specset_name(run), max_no_files_per_directory, overwrite=overwrite)
+                    writers[key] = _specset_writer(out_path / specset_name(run), max_no_files_per_directory, overwrite=overwrite)
 
-                writers[run].add({
+                writers[key].add({
                     "pep":         row["Modified.Sequence"],
                     "z":           row["Precursor.Charge"],
                     "rt":          row["RT"],
@@ -659,7 +666,10 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
         for writer in writers.values():
             writer.close()
 
-    print(f"\nDone. {len(writers)} specsets written to {out_path}")
+    if by_Run:
+        print(f"\nDone. {len(writers)} specsets written to {out_path}")
+    else:
+        print(f"\nDone. Specset written to {out_path}")
 
 
 def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
