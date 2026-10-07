@@ -1,14 +1,14 @@
 """PySide6 graphical interface for specset."""
 
 import contextlib
-import json
+import html
 import math
 import re
 import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QSortFilterProxyModel, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QPoint, QSortFilterProxyModel, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
@@ -313,10 +313,7 @@ def _parse_ms2(ms2):
     ms2 = ms2.strip()
     if not ms2:
         return []
-    if ms2.startswith("["):  # legacy JSON format
-        rows = json.loads(ms2)
-    else:
-        rows = [item.split(",") for item in ms2.rstrip(";").split(";") if item]
+    rows = [item.split(",") for item in ms2.rstrip(";").split(";") if item]
     frags = []
     for row in rows:
         if len(row) != len(_FRAG_COLS):
@@ -369,6 +366,40 @@ def _fragment_label(frag):
     if frag["charge"] > 1:
         label += "+" * frag["charge"]
     return label
+
+
+def _read_index(specset_path):
+    """Read _index.tsv of a specset into a list of (peptide, location)."""
+    rows = []
+    with open(Path(specset_path) / "_index.tsv") as f:
+        for line in f:
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                rows.append((parts[0], parts[1].strip()))
+    return rows
+
+
+def _read_location_index(location_path):
+    """Read __index.tsv of a location into a list of (file name, charge)."""
+    rows = []
+    with open(Path(location_path) / "__index.tsv") as f:
+        for line in f:
+            parts = line.split()
+            if parts:
+                rows.append((parts[0], _to_int(parts[1]) if len(parts) > 1 else None))
+    return rows
+
+
+def _load_psm(psm_path):
+    """Read a PSM file; return (fields, fragments with m/z). Raises OSError or ValueError."""
+    psm = _read_psm_file(psm_path)
+    frags = _parse_ms2(psm.get("ms2", ""))
+    QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+    try:
+        _fragment_mz(psm.get("pep", ""), frags)
+    finally:
+        QApplication.restoreOverrideCursor()
+    return psm, frags
 
 
 class _TableModel(QAbstractTableModel):
@@ -424,6 +455,8 @@ def _make_table(model, sortable=True):
     view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     view.setSortingEnabled(sortable)
+    if sortable:
+        view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # show rows in model order until a header is clicked
     view.setAlternatingRowColors(True)
     view.setWordWrap(False)
     view.verticalHeader().hide()
@@ -433,7 +466,11 @@ def _make_table(model, sortable=True):
 
 
 class _SpectrumWidget(QWidget):
-    """Stick plot of fragment intensities, by m/z when available."""
+    """Stick plot of fragment intensities, by m/z when available.
+
+    With a second list of fragments, draws a mirror plot: the first PSM pointing
+    up and the second pointing down, each scaled to its own maximum intensity.
+    """
 
     _COLORS = {"b": QColor(31, 119, 180), "y": QColor(214, 39, 40)}
     _MAX_LABELS = 25
@@ -441,10 +478,13 @@ class _SpectrumWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.frags = []
+        self.mirror = None
+        self.captions = ("A", "B")
         self.setMinimumHeight(220)
 
-    def set_fragments(self, frags):
+    def set_fragments(self, frags, mirror=None):
         self.frags = frags
+        self.mirror = mirror
         self.update()
 
     def paintEvent(self, event):
@@ -461,41 +501,48 @@ class _SpectrumWidget(QWidget):
         if w <= 10 or h <= 10:
             return
 
-        painter.setPen(QPen(text_color, 1))
-        painter.drawLine(left, top + h, left + w, top + h)
-        painter.drawLine(left, top, left, top + h)
+        mirrored = self.mirror is not None
+        sides = [(1, self.frags)] + ([(-1, self.mirror)] if mirrored else [])
+        baseline = top + h / 2 if mirrored else top + h
+        half = h / 2 if mirrored else h
 
-        if not self.frags:
+        all_frags = [f for _, frags in sides for f in frags]
+        painter.setPen(QPen(text_color, 1))
+        if not all_frags:
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No fragments")
             return
 
-        by_mz = all(f["mz"] is not None for f in self.frags)
+        painter.drawLine(left, int(baseline), left + w, int(baseline))
+        painter.drawLine(left, top, left, top + h)
+
+        by_mz = all(f["mz"] is not None for f in all_frags)
         if by_mz:
-            xs = [f["mz"] for f in self.frags]
-            x_min, x_max = 0.0, max(xs) * 1.05
+            def xpos(f):
+                return f["mz"]
+            x_min, x_max = 0.0, max(f["mz"] for f in all_frags) * 1.05
             x_label = "m/z"
         else:
-            # no m/z: spread fragments evenly, b ions then y ions, by number
-            order = sorted(range(len(self.frags)), key=lambda i: (self.frags[i]["type"], self.frags[i]["number"]))
-            xs = [0.0] * len(self.frags)
-            for pos, i in enumerate(order):
-                xs[i] = pos + 1
-            x_min, x_max = 0.0, len(self.frags) + 1.0
+            # no m/z: spread fragments evenly by type and number; the same fragment gets the same position on both sides
+            keys = sorted({(f["type"], f["number"], f["charge"], f["loss"]) for f in all_frags})
+            positions = {key: i + 1 for i, key in enumerate(keys)}
+
+            def xpos(f):
+                return positions[(f["type"], f["number"], f["charge"], f["loss"])]
+            x_min, x_max = 0.0, len(keys) + 1.0
             x_label = "fragment (m/z not available)"
-        y_max = max(f["intensity"] for f in self.frags) or 1.0
 
         def px(x):
             return left + (x - x_min) / (x_max - x_min) * w
 
-        def py(y):
-            return top + h - y / y_max * h
-
         # y axis ticks
-        for frac in (0, 0.5, 1.0):
-            y = py(frac * y_max)
-            painter.drawLine(left - 4, int(y), left, int(y))
-            label = f"{int(frac * 100)}%"
-            painter.drawText(left - 6 - fm.horizontalAdvance(label), int(y + fm.ascent() / 2 - 1), label)
+        for sign, _ in sides:
+            for frac in (0, 0.5, 1.0):
+                if sign < 0 and frac == 0:
+                    continue
+                y = baseline - sign * frac * half
+                painter.drawLine(left - 4, int(y), left, int(y))
+                label = f"{int(frac * 100)}%"
+                painter.drawText(left - 6 - fm.horizontalAdvance(label), int(y + fm.ascent() / 2 - 1), label)
 
         # x axis ticks
         if by_mz:
@@ -503,21 +550,32 @@ class _SpectrumWidget(QWidget):
             tick = step
             while tick < x_max:
                 x = px(tick)
-                painter.drawLine(int(x), top + h, int(x), top + h + 4)
+                painter.drawLine(int(x), int(baseline), int(x), int(baseline) + 4)
                 label = f"{tick:g}"
                 painter.drawText(int(x - fm.horizontalAdvance(label) / 2), top + h + 4 + fm.ascent(), label)
                 tick += step
         painter.drawText(left + w - fm.horizontalAdvance(x_label), self.height() - 2, x_label)
 
+        # captions for the mirror plot
+        if mirrored:
+            painter.drawText(left + 6, top + fm.ascent(), self.captions[0])
+            painter.drawText(left + 6, top + h - 4, self.captions[1])
+
         # peaks
-        label_set = set(sorted(range(len(self.frags)), key=lambda i: -self.frags[i]["intensity"])[:self._MAX_LABELS])
-        for i, frag in enumerate(self.frags):
-            color = self._COLORS.get(frag["type"], text_color)
-            x, y = px(xs[i]), py(frag["intensity"])
-            painter.setPen(QPen(color, 2))
-            painter.drawLine(int(x), top + h, int(x), int(y))
-            if i in label_set:
-                painter.drawText(int(x + 2), int(max(y - 3, fm.ascent())), _fragment_label(frag))
+        for sign, frags in sides:
+            if not frags:
+                continue
+            y_max = max(f["intensity"] for f in frags) or 1.0
+            label_set = set(sorted(range(len(frags)), key=lambda i: -frags[i]["intensity"])[:self._MAX_LABELS])
+            for i, frag in enumerate(frags):
+                color = self._COLORS.get(frag["type"], text_color)
+                x = px(xpos(frag))
+                y = baseline - sign * frag["intensity"] / y_max * half
+                painter.setPen(QPen(color, 2))
+                painter.drawLine(int(x), int(baseline), int(x), int(y))
+                if i in label_set:
+                    label_y = max(y - 3, fm.ascent()) if sign > 0 else min(y + fm.ascent() + 1, top + h)
+                    painter.drawText(int(x + 2), int(label_y), _fragment_label(frag))
 
 
 def _nice_step(span, n_ticks):
@@ -529,13 +587,151 @@ def _nice_step(span, n_ticks):
     return 10 * magnitude
 
 
+class _PsmPanel(QGroupBox):
+    """PSMs of one peptide (__index.tsv) aligned with the Fields and Fragments tables of the selected PSM."""
+
+    fragments_changed = Signal(list)
+
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        self.location_path = None
+        self._count = ""
+
+        self.label = QLabel()
+        self.label.setTextFormat(Qt.TextFormat.RichText)
+        self.label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.label.setWordWrap(True)
+        self.psm_model = _TableModel(["File"])  # rows are (file name, charge); charge is used for filtering
+        self.psm_view, self.psm_proxy = _make_table(self.psm_model)
+        self.field_model = _TableModel(["Field", "Value"])
+        self.field_view, _ = _make_table(self.field_model, sortable=False)
+        self.frag_model = _TableModel(["Fragment", "Type", "Number", "Charge", "Loss", "m/z", "Intensity"])
+        self.frag_view, _ = _make_table(self.frag_model)
+        self.psm_view.selectionModel().currentRowChanged.connect(self._on_psm_selected)
+
+        self.tables = tables = QSplitter(Qt.Orientation.Horizontal)
+        tables.addWidget(self.psm_view)
+        tables.addWidget(self.field_view)
+        tables.addWidget(self.frag_view)
+        # PSM list just wide enough for an 8-digit file name
+        psm_width = (self.psm_view.fontMetrics().horizontalAdvance("00000000") + 16 + 2 * self.psm_view.frameWidth()
+                     + self.psm_view.verticalScrollBar().sizeHint().width())
+        tables.setSizes([psm_width, 330, 500])
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.label)
+        layout.addWidget(tables, 1)
+        self.clear()
+
+    def align_fragments_to(self, widget):
+        """Resize the Fields table so that the Fragments table starts at the left edge of widget."""
+        window = self.window()
+        delta = widget.mapTo(window, QPoint(0, 0)).x() - self.frag_view.mapTo(window, QPoint(0, 0)).x()
+        sizes = self.tables.sizes()
+        if sizes[1] + delta > 0 and sizes[2] - delta > 0:
+            sizes[1] += delta
+            sizes[2] -= delta
+            self.tables.setSizes(sizes)
+
+    def set_location(self, location_path, charge=None):
+        """Show the PSMs of a peptide location, optionally only those with the given charge, and select the first one."""
+        self.clear()
+        self.location_path = Path(location_path)
+        try:
+            rows = _read_location_index(self.location_path)
+        except OSError as e:
+            self._set_details(f"Cannot read __index.tsv: {html.escape(str(e))}")
+            return
+        if charge is not None:
+            rows = [row for row in rows if row[1] == charge]
+            self._count = f"{len(rows)} PSMs with charge {charge}"
+        else:
+            self._count = f"{len(rows)} PSMs"
+        self.psm_model.set_rows(rows)
+        if rows:
+            self.psm_view.selectRow(0)
+        else:
+            self._set_details("")
+
+    def clear(self):
+        self.location_path = None
+        self._count = ""
+        self.psm_model.set_rows([])
+        self._clear_psm()
+        self._set_details("Select a peptide")
+
+    def _clear_psm(self):
+        self.field_model.set_rows([])
+        self.frag_model.set_rows([])
+        self.fragments_changed.emit([])
+
+    def _set_details(self, text):
+        self.label.setText(" &nbsp;·&nbsp; ".join(t for t in (self._count, text) if t))
+
+    def _on_psm_selected(self, current, previous):
+        if not current.isValid() or self.location_path is None:
+            self._clear_psm()
+            return
+        file_name = self.psm_model.rows[self.psm_proxy.mapToSource(current).row()][0]
+        psm_path = self.location_path / f"{file_name}.tsv"
+        try:
+            psm, frags = _load_psm(psm_path)
+        except (OSError, ValueError) as e:
+            self._clear_psm()
+            self._set_details(f"Cannot read {html.escape(str(psm_path))}: {html.escape(str(e))}")
+            return
+
+        self._set_details(f"<b>{html.escape(psm.get('pep', '?'))}</b> &nbsp; charge {html.escape(psm.get('z', '?'))} &nbsp; "
+                          f"<span style='color:gray'>{html.escape(str(psm_path))}</span>")
+        self.field_model.set_rows([(k, v) for k, v in psm.items() if k != "ms2"]
+                                  + [("ms2", f"{len(frags)} fragments")])
+        self.frag_model.set_rows([(_fragment_label(f), f["type"], f["number"], f["charge"], f["loss"], f["mz"], f["intensity"])
+                                  for f in frags])
+        self.field_view.resizeColumnToContents(0)
+        self.fragments_changed.emit(frags)
+
+
+class _ChargeBox(QGroupBox):
+    """Charges of the selected peptide, with a description on top; emits the selected charge (None when cleared)."""
+
+    charge_selected = Signal(object)
+
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        self.label = QLabel()
+        self.label.setWordWrap(True)
+        self.model = _TableModel(["Charge"])
+        self.view, self.proxy = _make_table(self.model)
+        self.view.selectionModel().currentRowChanged.connect(self._on_selected)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.label)
+        layout.addWidget(self.view)
+
+    def set_charges(self, charges, description):
+        """Show the charges and select the first one."""
+        self.model.set_rows([(str(z), z) for z in charges])  # shown as text; the charge itself is emitted
+        self.label.setText(description)
+        if charges:
+            self.view.selectRow(0)
+
+    def clear(self, description=""):
+        self.model.set_rows([])
+        self.label.setText(description)
+
+    def _on_selected(self, current, previous):
+        if not current.isValid():
+            self.charge_selected.emit(None)
+            return
+        self.charge_selected.emit(self.model.rows[self.proxy.mapToSource(current).row()][1])
+
+
 class _ViewerWidget(QWidget):
     """Viewer tab: browse peptides, PSMs and spectra of a specset."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.specset_path = None
-        self.location = None
+        self.location_path = None
 
         # specset selection
         self.path_edit = QLineEdit()
@@ -570,58 +766,43 @@ class _ViewerWidget(QWidget):
         pep_layout.addWidget(self.pep_count)
         self.pep_view.selectionModel().currentRowChanged.connect(self._on_peptide_selected)
 
-        # __index.tsv: PSMs of the selected peptide
-        self.psm_model = _TableModel(["File", "Charge"])
-        self.psm_view, self.psm_proxy = _make_table(self.psm_model)
-        self.psm_count = QLabel()
-        psm_box = QGroupBox("PSMs (__index.tsv)")
-        psm_layout = QVBoxLayout(psm_box)
-        psm_layout.addWidget(self.psm_view)
-        psm_layout.addWidget(self.psm_count)
-        self.psm_view.selectionModel().currentRowChanged.connect(self._on_psm_selected)
-
-        left = QSplitter(Qt.Orientation.Vertical)
-        left.addWidget(pep_box)
-        left.addWidget(psm_box)
-        left.setSizes([500, 250])
-
-        # PSM panel
-        self.psm_title = QLabel("Select a PSM")
-        self.psm_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.psm_title.setWordWrap(True)
         self.spectrum = _SpectrumWidget()
-        self.field_model = _TableModel(["Field", "Value"])
-        self.field_view, _ = _make_table(self.field_model, sortable=False)
-        self.frag_model = _TableModel(["Fragment", "Type", "Number", "Charge", "Loss", "m/z", "Intensity"])
-        self.frag_view, _ = _make_table(self.frag_model)
 
-        tables = QSplitter(Qt.Orientation.Horizontal)
-        field_box = QGroupBox("Fields")
-        QVBoxLayout(field_box).addWidget(self.field_view)
-        frag_box = QGroupBox("Fragments")
-        QVBoxLayout(frag_box).addWidget(self.frag_view)
-        tables.addWidget(field_box)
-        tables.addWidget(frag_box)
-        tables.setSizes([300, 450])
+        # charges of the selected peptide (from __index.tsv)
+        self.charge_box = _ChargeBox("Charges")
+        self.charge_box.charge_selected.connect(self._on_charge_selected)
 
-        right_split = QSplitter(Qt.Orientation.Vertical)
-        right_split.addWidget(self.spectrum)
-        right_split.addWidget(tables)
-        right_split.setSizes([320, 380])
+        # __index.tsv of the selected peptide and the selected PSM
+        self.psm_panel = _PsmPanel("PSMs (__index.tsv)")
+        self.psm_panel.fragments_changed.connect(self.spectrum.set_fragments)
 
-        right = QGroupBox("PSM")
-        right_layout = QVBoxLayout(right)
-        right_layout.addWidget(self.psm_title)
-        right_layout.addWidget(right_split, 1)
+        # top: peptides and plot; bottom: charges, PSMs and tables
+        top = QSplitter(Qt.Orientation.Horizontal)
+        top.addWidget(pep_box)
+        top.addWidget(self.spectrum)
+        top.setSizes([380, 800])
 
-        main_split = QSplitter(Qt.Orientation.Horizontal)
-        main_split.addWidget(left)
-        main_split.addWidget(right)
-        main_split.setSizes([380, 800])
+        bottom = QSplitter(Qt.Orientation.Horizontal)
+        bottom.addWidget(self.charge_box)
+        bottom.addWidget(self.psm_panel)
+        bottom.setStretchFactor(1, 1)
+        bottom.setSizes([110, 1070])
+
+        main_split = QSplitter(Qt.Orientation.Vertical)
+        main_split.addWidget(top)
+        main_split.addWidget(bottom)
+        main_split.setSizes([400, 350])
 
         layout = QVBoxLayout(self)
         layout.addLayout(path_row)
         layout.addWidget(main_split, 1)
+        self._aligned = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._aligned:
+            self._aligned = True
+            QTimer.singleShot(0, lambda: self.psm_panel.align_fragments_to(self.spectrum))
 
     def _browse(self):
         start = self.path_edit.text() or str(Path.home())
@@ -644,12 +825,7 @@ class _ViewerWidget(QWidget):
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            rows = []
-            with open(index_file) as f:
-                for line in f:
-                    parts = line.split(maxsplit=1)
-                    if len(parts) == 2:
-                        rows.append((parts[0], parts[1].strip()))
+            rows = _read_index(specset_path)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -657,8 +833,7 @@ class _ViewerWidget(QWidget):
         self.path_edit.setText(str(specset_path))
         self.pep_view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # keep file order
         self.pep_model.set_rows(rows)
-        self.psm_model.set_rows([])
-        self._clear_psm()
+        self._clear_charges()
         self._update_pep_count()
         self.window().statusBar().showMessage(f"Opened {specset_path}")
         if rows:
@@ -673,65 +848,198 @@ class _ViewerWidget(QWidget):
         shown = self.pep_proxy.rowCount()
         self.pep_count.setText(f"{total} peptides" if shown == total else f"{shown} of {total} peptides")
 
+    def _clear_charges(self, description=""):
+        self.location_path = None
+        self.charge_box.clear(description)
+        self.psm_panel.clear()
+
     def _on_peptide_selected(self, current, previous):
-        self._clear_psm()
+        self._clear_charges()
         if not current.isValid() or self.specset_path is None:
-            self.psm_model.set_rows([])
-            self.psm_count.setText("")
             return
-        row = self.pep_model.rows[self.pep_proxy.mapToSource(current).row()]
-        self.location = row[1]
-        rows = []
-        index2 = self.specset_path / self.location / "__index.tsv"
+        location_path = self.specset_path / self.pep_model.rows[self.pep_proxy.mapToSource(current).row()][1]
         try:
-            with open(index2) as f:
-                for line in f:
-                    parts = line.split()
-                    if parts:
-                        rows.append((_to_int(parts[0]), _to_int(parts[1]) if len(parts) > 1 else None))
+            charges = sorted({z for _, z in _read_location_index(location_path)})
         except OSError as e:
-            self.psm_title.setText(f"Cannot read {index2}: {e}")
-        self.psm_model.set_rows(rows)
-        self.psm_count.setText(f"{len(rows)} PSMs")
-        if rows:
-            self.psm_view.selectRow(0)
-
-    def _on_psm_selected(self, current, previous):
-        if not current.isValid() or self.location is None:
-            self._clear_psm()
+            self._clear_charges(f"Cannot read __index.tsv: {e}")
             return
-        file_name = self.psm_model.rows[self.psm_proxy.mapToSource(current).row()][0]
-        self.show_psm(self.specset_path / self.location / f"{file_name}.tsv")
+        self.location_path = location_path
+        self.charge_box.set_charges(charges, f"{len(charges)} charges")
 
-    def show_psm(self, psm_path):
-        try:
-            psm = _read_psm_file(psm_path)
-            frags = _parse_ms2(psm.get("ms2", ""))
-        except (OSError, ValueError) as e:
-            self._clear_psm()
-            self.psm_title.setText(f"Cannot read {psm_path}: {e}")
+    def _on_charge_selected(self, charge):
+        if charge is None or self.location_path is None:
+            self.psm_panel.clear()
             return
+        self.psm_panel.set_location(self.location_path, charge)
+
+
+class _CompareViewerWidget(QWidget):
+    """Compare tab: peptides shared by two specsets, their common charges, and a mirror plot of one PSM from each."""
+
+    _SIDES = ("A", "B")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.specset_paths = [None, None]
+        self.locations = [{}, {}]            # peptide -> location, per specset
+        self.current_pep = None
+        self.frags = [[], []]
+        self._totals = ""
+
+        # specset selection
+        self.path_edits = [_PathEdit(DIR), _PathEdit(DIR)]
+        paths = QFormLayout()
+        for side, edit in zip(self._SIDES, self.path_edits):
+            edit.edit.setPlaceholderText(f"Specset {side} directory")
+            edit.edit.returnPressed.connect(self._compare)
+            paths.addRow(f"Specset {side}:", edit)
+        compare = QPushButton("Compare")
+        compare.clicked.connect(self._compare)
+        path_row = QHBoxLayout()
+        path_row.addLayout(paths, 1)
+        path_row.addWidget(compare, 0, Qt.AlignmentFlag.AlignBottom)
+
+        # overlapping peptides
+        self.pep_model = _TableModel(["Peptide"])
+        self.pep_view, self.pep_proxy = _make_table(self.pep_model)
+        self.pep_filter = QLineEdit()
+        self.pep_filter.setPlaceholderText("Filter peptides…")
+        self.pep_filter.setClearButtonEnabled(True)
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(300)
+        self._filter_timer.timeout.connect(self._apply_filter)
+        self.pep_filter.textChanged.connect(self._filter_timer.start)
+        self.pep_count = QLabel()
+        pep_box = QGroupBox("Overlapping peptides (_index.tsv)")
+        pep_layout = QVBoxLayout(pep_box)
+        pep_layout.addWidget(self.pep_filter)
+        pep_layout.addWidget(self.pep_view)
+        pep_layout.addWidget(self.pep_count)
+        self.pep_view.selectionModel().currentRowChanged.connect(self._on_peptide_selected)
+
+        # charges of the selected peptide present in both specsets (from __index.tsv)
+        self.charge_box = _ChargeBox("Common charges")
+        self.charge_box.charge_selected.connect(self._on_charge_selected)
+
+        # mirror plot
+        self.spectrum = _SpectrumWidget()
+
+        top = QSplitter(Qt.Orientation.Horizontal)
+        top.addWidget(pep_box)
+        top.addWidget(self.spectrum)
+        top.setSizes([460, 720])
+
+        # per specset: __index.tsv of the selected peptide and the selected PSM
+        self.psm_panels = []
+        panels = QSplitter(Qt.Orientation.Vertical)
+        for i, side in enumerate(self._SIDES):
+            panel = _PsmPanel(f"Specset {side}: PSMs (__index.tsv)")
+            panel.fragments_changed.connect(lambda frags, i=i: self._on_fragments_changed(i, frags))
+            self.psm_panels.append(panel)
+            panels.addWidget(panel)
+
+        # bottom: common charges on the left, spanning both PSM panels
+        bottom = QSplitter(Qt.Orientation.Horizontal)
+        bottom.addWidget(self.charge_box)
+        bottom.addWidget(panels)
+        bottom.setStretchFactor(1, 1)
+        bottom.setSizes([110, 1070])
+
+        main_split = QSplitter(Qt.Orientation.Vertical)
+        main_split.addWidget(top)
+        main_split.addWidget(bottom)
+        main_split.setSizes([380, 460])
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(path_row)
+        layout.addWidget(main_split, 1)
+        self._aligned = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._aligned:
+            self._aligned = True
+            QTimer.singleShot(0, self._align_panels)
+
+    def _align_panels(self):
+        for panel in self.psm_panels:
+            panel.align_fragments_to(self.spectrum)
+
+    def _compare(self):
+        texts = [edit.text() for edit in self.path_edits]
+        if not all(texts):
+            QMessageBox.warning(self, "Missing specset", "Please select both specsets.")
+            return
+        paths = [Path(t) for t in texts]
+        for side, path in zip(self._SIDES, paths):
+            if not (path / "_index.tsv").is_file():
+                QMessageBox.warning(self, "Not a specset", f"Specset {side}: no _index.tsv found in:\n{path}")
+                return
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            _fragment_mz(psm.get("pep", ""), frags)
+            indexes = [_read_index(path) for path in paths]
         finally:
             QApplication.restoreOverrideCursor()
 
-        self.psm_title.setText(f"<b>{psm.get('pep', '?')}</b> &nbsp; charge {psm.get('z', '?')} &nbsp; "
-                               f"<span style='color:gray'>{psm_path}</span>")
-        self.field_model.set_rows([(k, v) for k, v in psm.items() if k != "ms2"]
-                                  + [("ms2", f"{len(frags)} fragments")])
-        self.frag_model.set_rows([(_fragment_label(f), f["type"], f["number"], f["charge"], f["loss"], f["mz"], f["intensity"])
-                                  for f in frags])
-        self.field_view.resizeColumnToContents(0)
-        self.spectrum.set_fragments(frags)
+        self.specset_paths = paths
+        self.locations = [dict(index) for index in indexes]
+        overlap = [(pep,) for pep, _ in indexes[0] if pep in self.locations[1]]
+        self._totals = f"A: {len(self.locations[0])}, B: {len(self.locations[1])}"
 
-    def _clear_psm(self):
-        self.psm_title.setText("Select a PSM")
-        self.field_model.set_rows([])
-        self.frag_model.set_rows([])
-        self.spectrum.set_fragments([])
+        self.pep_view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # keep the order of specset A
+        self.pep_model.set_rows(overlap)
+        self._update_pep_count()
+        self.window().statusBar().showMessage(f"Compared {paths[0]} and {paths[1]}: {len(overlap)} overlapping peptides")
+        if overlap:
+            self.pep_view.selectRow(0)
+        else:
+            self._clear_charges()
+
+    def _apply_filter(self):
+        self.pep_proxy.setFilterFixedString(self.pep_filter.text().strip())
+        self._update_pep_count()
+
+    def _update_pep_count(self):
+        total = self.pep_model.rowCount()
+        shown = self.pep_proxy.rowCount()
+        count = f"{total}" if shown == total else f"{shown} of {total}"
+        self.pep_count.setText(f"{count} overlapping peptides ({self._totals})")
+
+    def _clear_psms(self):
+        for panel in self.psm_panels:
+            panel.clear()
+
+    def _clear_charges(self, description=""):
+        self.current_pep = None
+        self.charge_box.clear(description)
+        self._clear_psms()
+
+    def _on_peptide_selected(self, current, previous):
+        self._clear_charges()
+        if not current.isValid() or None in self.specset_paths:
+            return
+        pep = self.pep_model.rows[self.pep_proxy.mapToSource(current).row()][0]
+        try:
+            charges = [{z for _, z in _read_location_index(self.specset_paths[i] / self.locations[i][pep])} for i in range(2)]
+        except OSError as e:
+            self._clear_charges(f"Cannot read __index.tsv: {e}")
+            return
+        common = sorted(charges[0] & charges[1])
+        self.current_pep = pep
+        self.charge_box.set_charges(common, f"{len(common)} common")
+
+    def _on_charge_selected(self, charge):
+        if charge is None or self.current_pep is None:
+            self._clear_psms()
+            return
+        for i, panel in enumerate(self.psm_panels):
+            panel.set_location(self.specset_paths[i] / self.locations[i][self.current_pep], charge)
+
+    def _on_fragments_changed(self, i, frags):
+        self.frags[i] = frags
+        self.spectrum.set_fragments(self.frags[0], self.frags[1])
 
 
 class _ToolsWidget(QWidget):
@@ -878,9 +1186,11 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
 
         self.viewer = _ViewerWidget()
+        self.compare_viewer = _CompareViewerWidget()
         self.tools = _ToolsWidget()
         tabs = QTabWidget()
         tabs.addTab(self.viewer, "Viewer")
+        tabs.addTab(self.compare_viewer, "Compare")
         tabs.addTab(self.tools, "Tools")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Ready")
