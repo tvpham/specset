@@ -23,7 +23,7 @@ specset specset_to_speclib --additional-column proteins=Protein.Ids --additional
 There is also an experimental GUI application
 
 ```
-pip install -e "specset[gui]"
+pip install -e "specset[full]"
 ```
 
 and start the application by
