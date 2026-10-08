@@ -3,7 +3,8 @@
 ## Installation
 Create a Python enviroment and install specset
 
-On Windows, we have tested with the official Python distribution Python 3.14.1 at [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/). Open a command prompt at a working directory
+### Windows
+On Windows, we have tested with the official Python distribution Python 3.12.9 at [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/). At the moment, AlphaPeptDeep does not work with later Python version. Open a command prompt at a working directory
 ```
 py -m venv venv_specset
 
@@ -13,7 +14,7 @@ pip install "specset[full]"
 ```
 The ```full``` installation includes a GUI application. 
 
-
+### Linux
 On Linux, the installation is similar
 ```
 python -m venv venv_specset
