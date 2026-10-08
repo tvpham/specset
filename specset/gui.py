@@ -8,11 +8,14 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QPoint, QSortFilterProxyModel, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QTextCursor
+from PySide6.QtCore import (
+    QAbstractTableModel, QMarginsF, QModelIndex, QObject, QPoint, QRect, QRectF, QSize, QSortFilterProxyModel, Qt, QThread,
+    QTimer, Signal,
+)
+from PySide6.QtGui import QColor, QFont, QPageLayout, QPageSize, QPainter, QPalette, QPdfWriter, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton,
     QSpinBox, QSplitter, QStackedWidget, QTabWidget, QTableView, QVBoxLayout, QWidget,
 )
 
@@ -427,16 +430,42 @@ def _read_location_index(location_path):
     return rows
 
 
-def _load_psm(psm_path):
+def _read_psm(psm_path):
     """Read a PSM file; return (fields, fragments with m/z). Raises OSError or ValueError."""
     psm = _read_psm_file(psm_path)
     frags = _parse_ms2(psm.get("ms2", ""))
+    _fragment_mz(psm.get("pep", ""), frags)
+    return psm, frags
+
+
+def _load_psm(psm_path):
+    """Like _read_psm, with a wait cursor (the first m/z calculation can take a while)."""
     QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
     try:
-        _fragment_mz(psm.get("pep", ""), frags)
+        return _read_psm(psm_path)
     finally:
         QApplication.restoreOverrideCursor()
-    return psm, frags
+
+
+_FIELD_HEADERS = ["Field", "Value"]
+_FRAGMENT_HEADERS = ["Fragment", "Type", "Number", "Charge", "Loss", "m/z", "Intensity"]
+
+
+def _field_rows(psm, frags):
+    return [(k, v) for k, v in psm.items() if k != "ms2"] + [("ms2", f"{len(frags)} fragments")]
+
+
+def _fragment_rows(frags):
+    return [(_fragment_label(f), f["type"], f["number"], f["charge"], f["loss"], f["mz"], f["intensity"]) for f in frags]
+
+
+def _format_cell(value):
+    """Text of a table cell, as shown in the tables and exported to PDF."""
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
 
 
 class _TableModel(QAbstractTableModel):
@@ -463,11 +492,7 @@ class _TableModel(QAbstractTableModel):
             return None
         value = self.rows[index.row()][index.column()]
         if role == Qt.ItemDataRole.DisplayRole:
-            if value is None:
-                return ""
-            if isinstance(value, float):
-                return f"{value:.4f}"
-            return str(value)
+            return _format_cell(value)
         if role == Qt.ItemDataRole.UserRole:  # sort key
             return value if value is not None else ""
         if role == Qt.ItemDataRole.TextAlignmentRole and isinstance(value, (int, float)):
@@ -526,15 +551,18 @@ class _SpectrumWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pal = self.palette()
-        painter.fillRect(self.rect(), pal.color(QPalette.ColorRole.Base))
-        text_color = pal.color(QPalette.ColorRole.Text)
+        self.paint(painter, self.width(), self.height(), pal.color(QPalette.ColorRole.Base), pal.color(QPalette.ColorRole.Text))
+
+    def paint(self, painter, width, height, background, text_color):
+        """Draw the plot in the rectangle (0, 0, width, height) of painter; also used for PDF and SVG export."""
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(QRectF(0, 0, width, height), background)
 
         fm = painter.fontMetrics()
         left, right, top, bottom = fm.horizontalAdvance("100%") + 12, 16, fm.height() + 12, fm.height() + 14
-        w = self.width() - left - right
-        h = self.height() - top - bottom
+        w = width - left - right
+        h = height - top - bottom
         if w <= 10 or h <= 10:
             return
 
@@ -546,7 +574,7 @@ class _SpectrumWidget(QWidget):
         all_frags = [f for _, frags in sides for f in frags]
         painter.setPen(QPen(text_color, 1))
         if not all_frags:
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No fragments")
+            painter.drawText(QRectF(0, 0, width, height), Qt.AlignmentFlag.AlignCenter, "No fragments")
             return
 
         painter.drawLine(left, int(baseline), left + w, int(baseline))
@@ -591,7 +619,7 @@ class _SpectrumWidget(QWidget):
                 label = f"{tick:g}"
                 painter.drawText(int(x - fm.horizontalAdvance(label) / 2), top + h + 4 + fm.ascent(), label)
                 tick += step
-        painter.drawText(left + w - fm.horizontalAdvance(x_label), self.height() - 2, x_label)
+        painter.drawText(left + w - fm.horizontalAdvance(x_label), height - 2, x_label)
 
         # captions for the mirror plot
         if mirrored:
@@ -624,6 +652,206 @@ def _nice_step(span, n_ticks):
     return 10 * magnitude
 
 
+_last_export_dir = None
+
+
+def _ask_export_path(parent, caption, default_name, suffix, file_filter):
+    """Ask for a file to export to; return its path with the suffix, or None if cancelled."""
+    global _last_export_dir
+    start = Path(_last_export_dir or Path.home()) / default_name
+    path, _ = QFileDialog.getSaveFileName(parent, caption, str(start), file_filter)
+    if not path:
+        return None
+    if not path.lower().endswith(suffix):
+        path += suffix
+    _last_export_dir = str(Path(path).parent)
+    return path
+
+
+def _export_name(psm):
+    """Default export file name (without suffix) for a PSM, e.g. PEPTIDEK_z2."""
+    name = re.sub(r'[\\/:*?"<>|\s()]+', "_", f"{psm.get('pep', 'spectrum')}_z{psm.get('z', '')}").strip("_")
+    return name or "spectrum"
+
+
+def _export_svg(spectrum, path, title):
+    """Write the plot as an SVG, at the size it has on screen."""
+    from PySide6.QtSvg import QSvgGenerator
+
+    width, height = max(spectrum.width(), 600), max(spectrum.height(), 300)
+    generator = QSvgGenerator()
+    generator.setFileName(path)
+    generator.setSize(QSize(width, height))
+    generator.setViewBox(QRect(0, 0, width, height))
+    generator.setTitle(title)
+    painter = QPainter(generator)
+    try:
+        spectrum.paint(painter, width, height, QColor("white"), QColor("black"))
+    finally:
+        painter.end()
+
+
+class _PdfReport:
+    """Write text, plots and tables to an A4 PDF, starting new pages as needed."""
+
+    _FLAGS = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop) | int(Qt.TextFlag.TextWrapAnywhere)
+
+    def __init__(self, path):
+        self.writer = QPdfWriter(path)
+        self.writer.setResolution(96)  # so that sizes match the screen
+        self.writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        self.writer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Unit.Millimeter)
+        self.painter = QPainter(self.writer)
+        if not self.painter.isActive():
+            raise OSError(f"Cannot write {path}")
+        self.width = self.writer.width()
+        self.height = self.writer.height()
+        self.y = 0
+
+    def _font(self, size, bold=False):
+        font = QFont()
+        font.setPointSizeF(size)
+        font.setBold(bold)
+        return font
+
+    def _text_height(self, text, font, width):
+        self.painter.setFont(font)
+        return self.painter.fontMetrics().boundingRect(QRect(0, 0, int(width), 100000), self._FLAGS, text).height()
+
+    def _new_page_if_needed(self, height):
+        if self.y > 0 and self.y + height > self.height:
+            self.writer.newPage()
+            self.y = 0
+
+    def text(self, text, size=10, bold=False, color="black"):
+        font = self._font(size, bold)
+        height = self._text_height(text, font, self.width)
+        self._new_page_if_needed(height)
+        self.painter.setFont(font)
+        self.painter.setPen(QColor(color))
+        self.painter.drawText(QRectF(0, self.y, self.width, height), self._FLAGS, text)
+        self.y += height + 4
+
+    def plot(self, spectrum, aspect=0.5):
+        """Draw a _SpectrumWidget plot across the page width, as vector graphics."""
+        height = int(self.width * aspect)
+        self._new_page_if_needed(height)
+        self.painter.save()
+        self.painter.translate(0, self.y)
+        self.painter.setFont(self._font(8))
+        spectrum.paint(self.painter, self.width, height, QColor("white"), QColor("black"))
+        self.painter.restore()
+        self.y += height + 12
+
+    def table(self, title, headers, rows, weights):
+        """Draw a table with a title; rows are never split, and the header is repeated on a new page."""
+        title_font, font, bold = self._font(10, True), self._font(8), self._font(8, True)
+        widths = [self.width * w / sum(weights) for w in weights]
+        pad = 3
+        header = [str(h) for h in headers]
+        cells = [[_format_cell(v) for v in row[:len(headers)]] for row in rows]
+
+        def row_height(row, row_font):
+            return max(self._text_height(c, row_font, w - 2 * pad) for c, w in zip(row, widths)) + 2 * pad
+
+        def draw_row(row, row_font, height, shade):
+            if shade:
+                self.painter.fillRect(QRectF(0, self.y, self.width, height), QColor(235, 235, 235))
+            self.painter.setFont(row_font)
+            self.painter.setPen(QColor("black"))
+            x = 0
+            for c, w in zip(row, widths):
+                self.painter.drawText(QRectF(x + pad, self.y + pad, w - 2 * pad, height - 2 * pad), self._FLAGS, c)
+                x += w
+            self.painter.setPen(QPen(QColor(200, 200, 200), 0.5))
+            self.painter.drawLine(QRectF(0, self.y, self.width, height).bottomLeft(), QRectF(0, self.y, self.width, height).bottomRight())
+            self.y += height
+
+        header_height = row_height(header, bold)
+        title_height = self._text_height(title, title_font, self.width) + 4
+        first_height = row_height(cells[0], font) if cells else 0
+        self._new_page_if_needed(title_height + header_height + first_height)  # keep the title with the first row
+        self.text(title, 10, bold=True)
+        draw_row(header, bold, header_height, True)
+        for row in cells:
+            height = row_height(row, font)
+            if self.y + height > self.height:
+                self.writer.newPage()
+                self.y = 0
+                draw_row(header, bold, header_height, True)
+            draw_row(row, font, height, False)
+        if not cells:
+            self.text("(none)", 8, color="gray")
+        self.y += 12
+
+    def new_page(self):
+        """Continue on a new page, unless the current page is still empty."""
+        if self.y > 0:
+            self.writer.newPage()
+            self.y = 0
+
+    def fields_table(self, title, rows):
+        self.table(title, _FIELD_HEADERS, rows, [1, 3])
+
+    def fragments_table(self, title, rows):
+        self.table(title, _FRAGMENT_HEADERS, rows, [1.3, 0.8, 1, 1, 1, 1.3, 1.3])
+
+    def close(self):
+        self.painter.end()
+
+
+def _write_pages(parent, path, jobs, write_page, title):
+    """
+    Write each job to a new page of a PDF with write_page(report, job), showing a progress
+    dialog with Cancel. Return True if completed; on cancel, the partial PDF is deleted.
+    """
+    progress = QProgressDialog("Writing the PDF…", "Cancel", 0, len(jobs), parent)
+    progress.setWindowTitle(title)
+    progress.setWindowModality(Qt.WindowModality.WindowModal)
+    progress.setMinimumDuration(0)
+    completed = False
+    report = _PdfReport(path)
+    try:
+        for n, job in enumerate(jobs):
+            progress.setValue(n)
+            if progress.wasCanceled():
+                break
+            report.new_page()
+            write_page(report, job)
+        else:
+            completed = True
+    finally:
+        report.close()
+        progress.close()
+    if not completed:
+        Path(path).unlink(missing_ok=True)
+    return completed
+
+
+def _collect_jobs(parent, items, collect, title):
+    """Call collect(item) for each item with a progress dialog; return the concatenated jobs, or None if cancelled."""
+    progress = QProgressDialog("Collecting PSMs…", "Cancel", 0, len(items), parent)
+    progress.setWindowTitle(title)
+    progress.setWindowModality(Qt.WindowModality.WindowModal)
+    progress.setMinimumDuration(500)
+    jobs = []
+    try:
+        for n, item in enumerate(items):
+            if n % 100 == 0:
+                progress.setValue(n)
+                if progress.wasCanceled():
+                    return None
+            jobs.extend(collect(item))
+    finally:
+        progress.close()
+    return jobs
+
+
+def _shown_rows(proxy, model):
+    """Source rows of a table model in the order shown, filtered and sorted, by its proxy."""
+    return [model.rows[proxy.mapToSource(proxy.index(r, 0)).row()] for r in range(proxy.rowCount())]
+
+
 class _PsmPanel(QGroupBox):
     """PSMs of one peptide (__index.tsv) aligned with the Fields and Fragments tables of the selected PSM."""
 
@@ -633,6 +861,8 @@ class _PsmPanel(QGroupBox):
         super().__init__(title, parent)
         self.location_path = None
         self._count = ""
+        self.psm = None          # fields of the selected PSM
+        self.psm_path = None
 
         self.label = QLabel()
         self.label.setTextFormat(Qt.TextFormat.RichText)
@@ -640,9 +870,9 @@ class _PsmPanel(QGroupBox):
         self.label.setWordWrap(True)
         self.psm_model = _TableModel(["File"])  # rows are (file name, charge); charge is used for filtering
         self.psm_view, self.psm_proxy = _make_table(self.psm_model)
-        self.field_model = _TableModel(["Field", "Value"])
+        self.field_model = _TableModel(_FIELD_HEADERS)
         self.field_view, _ = _make_table(self.field_model, sortable=False)
-        self.frag_model = _TableModel(["Fragment", "Type", "Number", "Charge", "Loss", "m/z", "Intensity"])
+        self.frag_model = _TableModel(_FRAGMENT_HEADERS)
         self.frag_view, _ = _make_table(self.frag_model)
         self.psm_view.selectionModel().currentRowChanged.connect(self._on_psm_selected)
 
@@ -698,6 +928,8 @@ class _PsmPanel(QGroupBox):
         self._set_details("Select a peptide")
 
     def _clear_psm(self):
+        self.psm = None
+        self.psm_path = None
         self.field_model.set_rows([])
         self.frag_model.set_rows([])
         self.fragments_changed.emit([])
@@ -720,12 +952,17 @@ class _PsmPanel(QGroupBox):
 
         self._set_details(f"<b>{html.escape(psm.get('pep', '?'))}</b> &nbsp; charge {html.escape(psm.get('z', '?'))} &nbsp; "
                           f"<span style='color:gray'>{html.escape(str(psm_path))}</span>")
-        self.field_model.set_rows([(k, v) for k, v in psm.items() if k != "ms2"]
-                                  + [("ms2", f"{len(frags)} fragments")])
-        self.frag_model.set_rows([(_fragment_label(f), f["type"], f["number"], f["charge"], f["loss"], f["mz"], f["intensity"])
-                                  for f in frags])
+        self.field_model.set_rows(_field_rows(psm, frags))
+        self.frag_model.set_rows(_fragment_rows(frags))
         self.field_view.resizeColumnToContents(0)
+        self.psm = psm
+        self.psm_path = psm_path
         self.fragments_changed.emit(frags)
+
+    def add_tables_to(self, report, title_prefix=""):
+        """Add the Fields and Fragments tables of the selected PSM to a _PdfReport."""
+        report.fields_table(f"{title_prefix}Fields", self.field_model.rows)
+        report.fragments_table(f"{title_prefix}Fragments", self.frag_model.rows)
 
 
 class _ChargeBox(QGroupBox):
@@ -779,10 +1016,23 @@ class _ViewerWidget(QWidget):
         open_button = QPushButton("Open")
         open_button.clicked.connect(self._open_from_edit)
         path_row = QHBoxLayout()
+        export_pdf = QPushButton("Export PDF…")
+        export_pdf.setToolTip("Save the plot and the tables of the selected PSM as a PDF")
+        export_pdf.clicked.connect(self._on_export_pdf)
+        export_svg = QPushButton("Export SVG…")
+        export_svg.setToolTip("Save the plot as an SVG")
+        export_svg.clicked.connect(self._on_export_svg)
+        export_all = QPushButton("Export all PDF…")
+        export_all.setToolTip("Save every PSM of the peptides currently listed as a PDF, one PSM per page")
+        export_all.clicked.connect(self._on_export_all_pdf)
         path_row.addWidget(QLabel("Specset:"))
         path_row.addWidget(self.path_edit, 1)
         path_row.addWidget(browse)
         path_row.addWidget(open_button)
+        path_row.addSpacing(16)
+        path_row.addWidget(export_pdf)
+        path_row.addWidget(export_svg)
+        path_row.addWidget(export_all)
 
         # _index.tsv: peptides
         self.pep_model = _TableModel(["Peptide", "Location"])
@@ -890,6 +1140,42 @@ class _ViewerWidget(QWidget):
         self.charge_box.clear(description)
         self.psm_panel.clear()
 
+    def _on_export_pdf(self):
+        psm = self.psm_panel.psm
+        if psm is None:
+            QMessageBox.information(self, "Export PDF", "Select a PSM first.")
+            return
+        path = _ask_export_path(self, "Export PDF", _export_name(psm) + ".pdf", ".pdf", "PDF files (*.pdf)")
+        if not path:
+            return
+        try:
+            report = _PdfReport(path)
+            try:
+                report.text(f"{psm.get('pep', '?')}    charge {psm.get('z', '?')}", 13, bold=True)
+                report.plot(self.spectrum)
+                self.psm_panel.add_tables_to(report)
+            finally:
+                report.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Export PDF", f"Export failed: {e}")
+            return
+        self.window().statusBar().showMessage(f"Exported {path}")
+
+    def _on_export_svg(self):
+        psm = self.psm_panel.psm
+        if psm is None:
+            QMessageBox.information(self, "Export SVG", "Select a PSM first.")
+            return
+        path = _ask_export_path(self, "Export SVG", _export_name(psm) + ".svg", ".svg", "SVG files (*.svg)")
+        if not path:
+            return
+        try:
+            _export_svg(self.spectrum, path, f"{psm.get('pep', '?')} charge {psm.get('z', '?')}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export SVG", f"Export failed: {e}")
+            return
+        self.window().statusBar().showMessage(f"Exported {path}")
+
     def _on_peptide_selected(self, current, previous):
         self._clear_charges()
         if not current.isValid() or self.specset_path is None:
@@ -908,6 +1194,56 @@ class _ViewerWidget(QWidget):
             self.psm_panel.clear()
             return
         self.psm_panel.set_location(self.location_path, charge)
+
+    def _on_export_all_pdf(self):
+        title = "Export all PDF"
+        peptides = _shown_rows(self.pep_proxy, self.pep_model)
+        if self.specset_path is None or not peptides:
+            QMessageBox.information(self, title, "Open a specset first; the peptides currently listed are exported.")
+            return
+
+        def collect(row):
+            pep, location = row
+            location_path = self.specset_path / location
+            try:
+                return [(pep, location_path / f"{file_name}.tsv", file_name) for file_name, _ in _read_location_index(location_path)]
+            except OSError:
+                return []
+
+        jobs = _collect_jobs(self, peptides, collect, title)
+        if not jobs:
+            if jobs is not None:
+                QMessageBox.information(self, title, "No PSMs found.")
+            return
+        answer = QMessageBox.question(self, title, f"Export {len(jobs)} PSMs of {len(peptides)} peptides, one PSM per page?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        path = _ask_export_path(self, title, f"{self.specset_path.stem}_all.pdf", ".pdf", "PDF files (*.pdf)")
+        if not path:
+            return
+
+        spectrum = _SpectrumWidget()  # off screen, used to draw the plots
+
+        def write_page(report, job):
+            pep, psm_path, file_name = job
+            try:
+                psm, frags = _read_psm(psm_path)
+            except (OSError, ValueError) as e:
+                report.text(f"{pep}: cannot read PSM {file_name}: {e}", 10, color="red")
+                return
+            report.text(f"{psm.get('pep', pep)}    charge {psm.get('z', '?')}", 13, bold=True)
+            report.text(f"PSM {file_name}", 8, color="gray")
+            spectrum.set_fragments(frags)
+            report.plot(spectrum)
+            report.fields_table("Fields", _field_rows(psm, frags))
+            report.fragments_table("Fragments", _fragment_rows(frags))
+
+        try:
+            completed = _write_pages(self, path, jobs, write_page, title)
+        except Exception as e:
+            QMessageBox.critical(self, title, f"Export failed: {e}")
+            return
+        self.window().statusBar().showMessage(f"Exported {len(jobs)} PSMs to {path}" if completed else "Export cancelled")
 
 
 class _CompareViewerWidget(QWidget):
@@ -932,9 +1268,23 @@ class _CompareViewerWidget(QWidget):
             paths.addRow(f"Specset {side}:", edit)
         compare = QPushButton("Compare")
         compare.clicked.connect(self._compare)
+        export_pdf = QPushButton("Export PDF…")
+        export_pdf.setToolTip("Save the mirror plot and the tables of both PSMs as a PDF")
+        export_pdf.clicked.connect(self._on_export_pdf)
+        export_svg = QPushButton("Export SVG…")
+        export_svg.setToolTip("Save the mirror plot as an SVG")
+        export_svg.clicked.connect(self._on_export_svg)
+        export_all = QPushButton("Export all PDF…")
+        export_all.setToolTip("Save every pair of PSMs with a common charge, of the overlapping peptides currently listed, "
+                              "as a PDF, one pair per page")
+        export_all.clicked.connect(self._on_export_all_pdf)
         path_row = QHBoxLayout()
         path_row.addLayout(paths, 1)
         path_row.addWidget(compare, 0, Qt.AlignmentFlag.AlignBottom)
+        path_row.addSpacing(16)
+        path_row.addWidget(export_pdf, 0, Qt.AlignmentFlag.AlignBottom)
+        path_row.addWidget(export_svg, 0, Qt.AlignmentFlag.AlignBottom)
+        path_row.addWidget(export_all, 0, Qt.AlignmentFlag.AlignBottom)
 
         # overlapping peptides
         self.pep_model = _TableModel(["Peptide"])
@@ -1077,6 +1427,108 @@ class _CompareViewerWidget(QWidget):
     def _on_fragments_changed(self, i, frags):
         self.frags[i] = frags
         self.spectrum.set_fragments(self.frags[0], self.frags[1])
+
+    def _selected_psm(self):
+        """Fields of the first selected PSM (A, else B), or None."""
+        return next((panel.psm for panel in self.psm_panels if panel.psm is not None), None)
+
+    def _on_export_pdf(self):
+        psm = self._selected_psm()
+        if psm is None:
+            QMessageBox.information(self, "Export PDF", "Select a PSM first.")
+            return
+        path = _ask_export_path(self, "Export PDF", _export_name(psm) + "_compare.pdf", ".pdf", "PDF files (*.pdf)")
+        if not path:
+            return
+        try:
+            report = _PdfReport(path)
+            try:
+                report.text(f"{psm.get('pep', '?')}    charge {psm.get('z', '?')}", 13, bold=True)
+                report.plot(self.spectrum)
+                for side, panel in zip(self._SIDES, self.psm_panels):
+                    if panel.psm is not None:
+                        panel.add_tables_to(report, f"Specset {side}: ")
+            finally:
+                report.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Export PDF", f"Export failed: {e}")
+            return
+        self.window().statusBar().showMessage(f"Exported {path}")
+
+    def _on_export_svg(self):
+        psm = self._selected_psm()
+        if psm is None:
+            QMessageBox.information(self, "Export SVG", "Select a PSM first.")
+            return
+        path = _ask_export_path(self, "Export SVG", _export_name(psm) + "_compare.svg", ".svg", "SVG files (*.svg)")
+        if not path:
+            return
+        try:
+            _export_svg(self.spectrum, path, f"{psm.get('pep', '?')} charge {psm.get('z', '?')}: A up, B down")
+        except Exception as e:
+            QMessageBox.critical(self, "Export SVG", f"Export failed: {e}")
+            return
+        self.window().statusBar().showMessage(f"Exported {path}")
+
+    def _on_export_all_pdf(self):
+        title = "Export all PDF"
+        peptides = [row[0] for row in _shown_rows(self.pep_proxy, self.pep_model)]
+        if None in self.specset_paths or not peptides:
+            QMessageBox.information(self, title, "Compare two specsets first; the overlapping peptides currently listed are exported.")
+            return
+
+        def collect(pep):
+            """One job per pair of PSMs of A and B with the same charge."""
+            location_paths = [self.specset_paths[i] / self.locations[i][pep] for i in range(2)]
+            try:
+                psms = [_read_location_index(path) for path in location_paths]
+            except OSError:
+                return []
+            jobs = []
+            for z in sorted({c for _, c in psms[0]} & {c for _, c in psms[1]}):
+                files = [[f for f, c in psms[i] if c == z] for i in range(2)]
+                for file_a in files[0]:
+                    for file_b in files[1]:
+                        jobs.append((pep, z, location_paths[0] / f"{file_a}.tsv", file_a, location_paths[1] / f"{file_b}.tsv", file_b))
+            return jobs
+
+        jobs = _collect_jobs(self, peptides, collect, title)
+        if not jobs:
+            if jobs is not None:
+                QMessageBox.information(self, title, "No pairs of PSMs with a common charge found.")
+            return
+        answer = QMessageBox.question(self, title, f"Export {len(jobs)} pairs of PSMs of {len(peptides)} peptides, one pair per page?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        name = f"{self.specset_paths[0].stem}_vs_{self.specset_paths[1].stem}.pdf"
+        path = _ask_export_path(self, title, name, ".pdf", "PDF files (*.pdf)")
+        if not path:
+            return
+
+        spectrum = _SpectrumWidget()  # off screen, used to draw the mirror plots
+
+        def write_page(report, job):
+            pep, z, path_a, file_a, path_b, file_b = job
+            report.text(f"{pep}    charge {z}", 13, bold=True)
+            report.text(f"A (up): PSM {file_a}    B (down): PSM {file_b}", 8, color="gray")
+            frags = []
+            for side, psm_path, file_name in (("A", path_a, file_a), ("B", path_b, file_b)):
+                try:
+                    frags.append(_read_psm(psm_path)[1])
+                except (OSError, ValueError) as e:
+                    report.text(f"Specset {side}: cannot read PSM {file_name}: {e}", 9, color="red")
+                    frags.append([])
+            spectrum.set_fragments(frags[0], frags[1])
+            report.plot(spectrum)
+            for side, side_frags in zip(self._SIDES, frags):
+                report.fragments_table(f"Specset {side}: Fragments", _fragment_rows(side_frags))
+
+        try:
+            completed = _write_pages(self, path, jobs, write_page, title)
+        except Exception as e:
+            QMessageBox.critical(self, title, f"Export failed: {e}")
+            return
+        self.window().statusBar().showMessage(f"Exported {len(jobs)} pairs of PSMs to {path}" if completed else "Export cancelled")
 
 
 class _ToolsWidget(QWidget):
