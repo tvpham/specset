@@ -44,7 +44,8 @@ COMMANDS = [
         "fields": [
             ("txt_dir", "MaxQuant txt directory", DIR, {}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "msms.txt column=specset name, one per line\ne.g. Gene Names=genes"}),
+            ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "msms.txt column=specset name, one per line\ne.g. Gene Names=genes",
+                                                                       "default": "Score=score\nProteins=proteins\nGene Names=genes"}),
             ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
             ("n", "Max rows (-1 = all)", INT, {"default": -1, "min": -1}),
             ("overwrite", "Overwrite output", BOOL, {}),
@@ -208,6 +209,7 @@ class _CommandPage(QWidget):
             elif kind == KEY_VALUES:
                 w = QPlainTextEdit()
                 w.setPlaceholderText(opts.get("placeholder", "KEY=VALUE, one per line"))
+                w.setPlainText(opts.get("default", ""))
                 w.setFixedHeight(70)
             elif kind == TEXT:
                 w = QLineEdit()
