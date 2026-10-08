@@ -3,6 +3,18 @@
 ## Quick start
 Create a Python enviroment and install specset
 
+On Windows, we have tested with the official Python distribution Python 3.14.1 at [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/). Open a command prompt at a working directory
+```
+py -m venv venv_specset
+
+venv_specset\Scripts\activate.bat
+
+pip install "specset[full]"
+```
+
+
+
+On Linux
 ```
 python -m venv venv_specset
 . venv_specset/bin/activate
