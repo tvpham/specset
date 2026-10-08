@@ -33,7 +33,10 @@ def _cmd_diannlib_to_specset(args):
 def _cmd_diannreport_to_specset(args):
     from .utils import diannreport_to_specset
 
-    diannreport_to_specset(args.diannreport, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
+    if args.column and not args.values:
+        raise SystemExit("diannreport_to_specset: --values is required with --column")
+    diannreport_to_specset(args.diannreport, args.out_dir, column=args.column or "", values=args.values,
+                           max_no_files_per_directory=args.max_files_in_directory,
                            overwrite=args.overwrite, by_Run=args.by_Run)
 
 
@@ -112,6 +115,9 @@ def main():
     p.add_argument("out_dir", help="Output specset directory; with --by-Run, the directory in which one <Run>.specset is created per run")
     _add_max_files(p)
     p.add_argument("--by-Run", dest="by_Run", action="store_true", help="Create one specset per run (default: one specset with all runs)")
+    p.add_argument("--column", default="", help="Report column to select rows on, e.g. 'Run' (default: import all rows)")
+    p.add_argument("--values", nargs="+", default=[], metavar="VALUE",
+                   help="With --column, import only the rows whose value in that column is one of these, e.g. --values plasma1 plasma2")
     p.add_argument("--overwrite", action="store_true",
                    help="Delete an output specset first if it exists and is not empty (default: fail)")
     p.set_defaults(func=_cmd_diannreport_to_specset)

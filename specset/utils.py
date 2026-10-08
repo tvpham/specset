@@ -551,7 +551,7 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
     print("\nDone.")
 
 
-def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False, by_Run: bool = False) -> None:
+def diannreport_to_specset(diannreport: str, out_dir: str, column: str = "", values: List[str] = [], max_no_files_per_directory: int = 5000, overwrite: bool = False, by_Run: bool = False) -> None:
     """
     Convert a DIA-NN report parquet file to a specset, or to one specset per run.
 
@@ -568,6 +568,11 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
         Path to the DIA-NN report parquet file.
     out_dir : str
         Output specset directory; with by_Run, the directory in which one <Run>.specset is created per run.
+    column : str, optional
+        Report column to select rows on, e.g. "Run". Default is "" (import all rows).
+    values : list of str, optional
+        With column, import only the rows whose value in column is one of these values
+        (compared as text).
     max_no_files_per_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
     overwrite : bool, optional
@@ -591,6 +596,12 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
     n_frags = sum(1 for name in pf.schema_arrow.names if re.fullmatch(r"Fr\.\d+\.Id", name))
     columns = ["Run", "Modified.Sequence", "Precursor.Charge", "RT", "IM", "Q.Value", "Decoy", "Ms2.Scan", "Protein.Ids", "Genes"]
     columns += [f"Fr.{i}.{field}" for i in range(n_frags) for field in ("Id", "Quantity")]
+    if column:
+        if column not in pf.schema_arrow.names:
+            raise ValueError(f"column '{column}' not found in {diannreport}")
+        if column not in columns:
+            columns.append(column)
+        selected = {str(v) for v in values}
 
     # fragment id: type, number, loss, charge, m/z, e.g. "y8-unknown^1/816.403259"
     frag_id_pattern = re.compile(r"^([a-z])(\d+)-([^^]+)\^(\d+)/")
@@ -617,9 +628,11 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
     try:
         for batch in pf.iter_batches(batch_size=10000, columns=columns):
             chunk = batch.to_pandas()
-            for values in chunk.itertuples(index=False, name=None):
-                row = dict(zip(columns, values))
+            for row_values in chunk.itertuples(index=False, name=None):
+                row = dict(zip(columns, row_values))
                 if row["Decoy"]:
+                    continue
+                if column and str(row[column]) not in selected:
                     continue
 
                 matches = []

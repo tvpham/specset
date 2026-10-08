@@ -26,6 +26,8 @@ OPT_INT = "opt_int"      # 0 means None ("All")
 CHOICE = "choice"
 BOOL = "bool"
 KEY_VALUES = "key_values"  # one KEY=VALUE per line -> dict
+TEXT = "text"              # single line of text -> str ("" if empty)
+LINES = "lines"            # one value per line -> list of str
 
 _INT_MAX = 2**31 - 1
 
@@ -77,6 +79,10 @@ COMMANDS = [
             ("out_dir", "Output specset", OUT_DIR, {"parent_if": "by_Run",
                                                     "tooltip": "With 'One specset per run', the directory in which the <Run>.specset directories are created."}),
             ("by_Run", "One specset per run", BOOL, {}),
+            ("column", "Select rows on column", TEXT, {"placeholder": "Optional, e.g. Run",
+                                                      "tooltip": "Report column to select rows on. Leave empty to import all rows."}),
+            ("values", "Column values", LINES, {"placeholder": "One value per line, e.g.\nplasma1\nplasma2", "required_with": "column",
+                                               "tooltip": "Import only the rows whose value in the column above is one of these."}),
             ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
             ("overwrite", "Overwrite output", BOOL, {"tooltip": "Delete an output specset first if it exists and is not empty. If unchecked, a non-empty output specset is an error."}),
         ],
@@ -200,6 +206,13 @@ class _CommandPage(QWidget):
                 w = QPlainTextEdit()
                 w.setPlaceholderText(opts.get("placeholder", "KEY=VALUE, one per line"))
                 w.setFixedHeight(70)
+            elif kind == TEXT:
+                w = QLineEdit()
+                w.setPlaceholderText(opts.get("placeholder", ""))
+            elif kind == LINES:
+                w = QPlainTextEdit()
+                w.setPlaceholderText(opts.get("placeholder", "One value per line"))
+                w.setFixedHeight(70)
             else:
                 raise ValueError(f"unknown field kind: {kind}")
             if "tooltip" in opts:
@@ -251,6 +264,16 @@ class _CommandPage(QWidget):
                     key, value = line.split("=", 1)
                     d[key.strip()] = value.strip()
                 kwargs[name] = d
+            elif kind == TEXT:
+                kwargs[name] = w.text().strip()
+            elif kind == LINES:
+                kwargs[name] = [line.strip() for line in w.toPlainText().splitlines() if line.strip()]
+
+        # fields that must be filled in when another field is, e.g. values with column
+        for name, (kind, opts, w) in self.widgets.items():
+            other = opts.get("required_with")
+            if other and kwargs.get(other) and not kwargs.get(name):
+                raise ValueError(f"Please fill in '{self._label(name)}' when '{self._label(other)}' is given.")
         return kwargs
 
     def output_dir(self, kwargs):
