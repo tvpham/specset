@@ -1705,6 +1705,59 @@ class _ToolsWidget(QWidget):
         self.window().statusBar().showMessage(message)
 
 
+# Third-party software used by specset: (name, distribution name for the version, licence, URL)
+ACKNOWLEDGEMENTS = [
+    ("AlphaBase", "alphabase", "Apache-2.0", "https://github.com/MannLabs/alphabase"),
+    ("AlphaPeptDeep", "peptdeep", "Apache-2.0", "https://github.com/MannLabs/alphapeptdeep"),
+    ("lxml", "lxml", "BSD-3-Clause", "https://lxml.de/"),
+    ("NumPy", "numpy", "BSD-3-Clause", "https://numpy.org/"),
+    ("pandas", "pandas", "BSD-3-Clause", "https://pandas.pydata.org/"),
+    ("psm_utils", "psm_utils", "Apache-2.0", "https://github.com/CompOmics/psm_utils"),
+    ("pyarrow (Apache Arrow)", "pyarrow", "Apache-2.0", "https://arrow.apache.org/"),
+    ("PySide6 (Qt for Python)", "PySide6", "LGPL-3.0", "https://doc.qt.io/qtforpython-6/"),
+    ("pyteomics", "pyteomics", "Apache-2.0", "https://pyteomics.readthedocs.io/"),    
+    ("Unimod database (unimod.xml)", None, "Design Science License", "https://www.unimod.org/"),    
+]
+
+
+def _package_version(name):
+    if name is None:
+        return "Downloaded 9 October 2026"
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return "not installed"
+
+
+class _AboutWidget(QWidget):
+
+    def __init__(self):
+        super().__init__()
+        rows = "".join(
+            f"<tr><td><a href='{url}'>{html.escape(name)}</a></td><td>{html.escape(_package_version(dist))}</td>"
+            f"<td>{html.escape(licence)}</td></tr>"
+            for name, dist, licence, url in ACKNOWLEDGEMENTS
+        )
+        label = QLabel(
+            f"<h2>specset {html.escape(_package_version('specset'))}</h2>"
+            "<p>Toolkit for manipulation of a set of mass spectra.</p>"
+            "<h3>Acknowledgements</h3>"
+            "<p>specset is built on the following open-source software. "
+            "We thank their authors and contributors.</p>"
+            "<table cellspacing='0' cellpadding='4'>"
+            "<tr><th align='left'>Package</th><th align='left'>Version</th><th align='left'>Licence</th></tr>"
+            f"{rows}</table>"
+            "<p>Licence texts are available at the linked project pages.</p>"
+        )
+        label.setTextFormat(Qt.RichText)
+        label.setOpenExternalLinks(True)
+        label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        label.setWordWrap(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(label)
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self):
@@ -1719,6 +1772,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.viewer, "Viewer")
         tabs.addTab(self.compare_viewer, "Compare")
         tabs.addTab(self.tools, "Tools")
+        tabs.addTab(_AboutWidget(), "About")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Ready")
 
