@@ -23,6 +23,9 @@ specset-gui = "specset.gui:main"
 [tool.setuptools.packages.find]
 include = ["specset*"]
 
+[tool.setuptools.package-data]
+specset = ["unimod.xml"]
+
 [project.urls]
 Homepage = "https://github.com/tvpham/specset"
 Repository = "https://github.com/tvpham/specset.git"

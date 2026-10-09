@@ -2,7 +2,12 @@
 Adapt from aiproteomics
 https://github.com/aiproteomics/aiproteomics/tree/main/aiproteomics/core/mz.py
 '''
+from pathlib import Path
+
 from pyteomics import mass
+
+# Local copy of http://www.unimod.org/xml/unimod.xml, so that no download is needed
+UNIMOD_XML = Path(__file__).with_name("unimod.xml")
 
 # Phospho diagnostic peak
 MASS_pY = 216.043
@@ -21,10 +26,11 @@ def generate_aa_mass():
     """
         Generates the dict of masses for supported amino acids and modifications.
 
-        Modification compositions are obtained from the Unimod database.
+        Modification compositions are obtained from the Unimod database: the local copy
+        unimod.xml next to this file, or the online database if that file is missing.
     """
 
-    db = mass.Unimod()
+    db = mass.Unimod(UNIMOD_XML.as_uri()) if UNIMOD_XML.is_file() else mass.Unimod()
     aa_comp = mass.std_aa_comp.copy()
 
     # Get relevant modifcations from unimod database
