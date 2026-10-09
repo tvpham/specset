@@ -1731,7 +1731,7 @@ class MainWindow(QMainWindow):
 
 
 # Application icon, used for the window and the taskbar if present
-ICON_FILE = Path(__file__).with_name("favico.ico")
+ICON_FILE = Path(__file__).with_name("favicon.ico")
 
 
 def main():
