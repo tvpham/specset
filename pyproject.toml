@@ -24,7 +24,7 @@ specset-gui = "specset.gui:main"
 include = ["specset*"]
 
 [tool.setuptools.package-data]
-specset = ["unimod.xml"]
+specset = ["unimod.xml", "favico.ico"]
 
 [project.urls]
 Homepage = "https://github.com/tvpham/specset"

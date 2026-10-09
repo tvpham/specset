@@ -12,7 +12,7 @@ from PySide6.QtCore import (
     QAbstractTableModel, QMarginsF, QModelIndex, QObject, QPoint, QRect, QRectF, QSize, QSortFilterProxyModel, Qt, QThread,
     QSettings, QTimer, Signal,
 )
-from PySide6.QtGui import QColor, QFont, QPageLayout, QPageSize, QPainter, QPalette, QPdfWriter, QPen, QTextCursor
+from PySide6.QtGui import QColor, QFont, QIcon, QPageLayout, QPageSize, QPainter, QPalette, QPdfWriter, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton,
@@ -1730,8 +1730,18 @@ class MainWindow(QMainWindow):
             event.accept()
 
 
+# Application icon, used for the window and the taskbar if present
+ICON_FILE = Path(__file__).with_name("favico.ico")
+
+
 def main():
+    if sys.platform == "win32":
+        # own taskbar entry with our icon, instead of being grouped under python.exe
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("specset.gui")
     app = QApplication(sys.argv)
+    if ICON_FILE.is_file():
+        app.setWindowIcon(QIcon(str(ICON_FILE)))
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
