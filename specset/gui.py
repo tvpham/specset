@@ -1707,8 +1707,6 @@ class _ToolsWidget(QWidget):
 
 # Third-party software used by specset: (name, distribution name for the version, licence, URL)
 ACKNOWLEDGEMENTS = [
-    ("AlphaBase", "alphabase", "Apache-2.0", "https://github.com/MannLabs/alphabase"),
-    ("AlphaPeptDeep", "peptdeep", "Apache-2.0", "https://github.com/MannLabs/alphapeptdeep"),
     ("lxml", "lxml", "BSD-3-Clause", "https://lxml.de/"),
     ("NumPy", "numpy", "BSD-3-Clause", "https://numpy.org/"),
     ("pandas", "pandas", "BSD-3-Clause", "https://pandas.pydata.org/"),
