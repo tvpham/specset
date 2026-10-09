@@ -1106,7 +1106,7 @@ def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.St
     return string_buffer
 
 
-def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000, overwrite: bool = False) -> None:
+def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "ignore", flush_threshold: int = 1000, overwrite: bool = False) -> None:
     """
     Merge specset_a and specset_b into a new specset at specset_out.
 
@@ -1125,7 +1125,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         Maximum number of files per batch directory. Default is 5000.
     mode : str, optional
         'both'   : for overlapping ones, keep both PSMs in specset_a and specset_b.
-        'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b.
+        'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b. Default is 'ignore'.
     flush_threshold : int, optional
         Number of PSMs to buffer before flushing to disk. Default is 1000.
     overwrite : bool, optional
@@ -1207,7 +1207,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
 
     print("\nDone.")
 
-def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "both", flush_threshold: int = 1000) -> None:
+def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "ignore", flush_threshold: int = 1000) -> None:
     """
     Merge specset_b into specset_a in place.
 
@@ -1225,7 +1225,7 @@ def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_director
         Number of PSMs to buffer before flushing to disk. Default is 1000.
     mode : str, optional
         'both'   : for overlapping ones, keep both PSMs in specset_a and specset_b.
-        'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b.
+        'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b. Default is 'ignore'.
 
     Returns
     -------

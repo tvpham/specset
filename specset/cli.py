@@ -77,8 +77,8 @@ def _add_overwrite(p):
 
 def _add_merge_options(p):
     _add_max_files(p)
-    p.add_argument("--mode", choices=["both", "ignore"], default="both",
-                   help="For peptides in both: 'both' keeps the PSMs from both, 'ignore' skips the ones from specset_b (default: both)")
+    p.add_argument("--mode", choices=["both", "ignore"], default="ignore",
+                   help="For peptides in both: 'both' keeps the PSMs from both, 'ignore' skips the ones from specset_b (default: ignore)")
     p.add_argument("--flush-threshold", type=int, default=1000, help="Number of PSMs to buffer before flushing the index to disk (default: 1000)")
 
 

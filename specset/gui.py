@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QAbstractTableModel, QMarginsF, QModelIndex, QObject, QPoint, QRect, QRectF, QSize, QSortFilterProxyModel, Qt, QThread,
-    QTimer, Signal,
+    QSettings, QTimer, Signal,
 )
 from PySide6.QtGui import QColor, QFont, QPageLayout, QPageSize, QPainter, QPalette, QPdfWriter, QPen, QTextCursor
 from PySide6.QtWidgets import (
@@ -109,7 +109,8 @@ COMMANDS = [
         "fields": [
             ("specset_dir", "Specset", DIR, {}),
             ("lib_name", "Output library", OUT_FILE, {"filter": "TSV files (*.tsv);;All files (*)"}),
-            ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "specset field=library column, one per line\ne.g. proteins=Protein.Ids"}),
+            ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "specset field=library column, one per line\ne.g. proteins=Protein.Ids",
+                                                                       "default": "proteins=Protein.Ids\ngenes=Genes"}),
             ("consensus_method", "Consensus method", CHOICE, {"choices": ["", "mean", "median"], "editable": True,
                                                               "tooltip": "Empty: PSM with most fragments. 'mean', 'median', or a specset field to select the PSM with the max value."}),
             ("n", "Max peptides", OPT_INT, {}),
@@ -123,7 +124,7 @@ COMMANDS = [
             ("specset_a", "Specset A", DIR, {}),
             ("specset_b", "Specset B", DIR, {}),
             ("specset_out", "Output specset", OUT_DIR, {}),
-            ("mode", "Mode", CHOICE, {"choices": ["both", "ignore"],
+            ("mode", "Mode", CHOICE, {"choices": ["both", "ignore"], "default": "ignore",
                                       "tooltip": "For peptides in both: 'both' keeps the PSMs from A and B, 'ignore' skips the ones from B."}),
             ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
             ("flush_threshold", "Flush threshold", INT, {"default": 1000, "min": 1}),
@@ -142,6 +143,22 @@ COMMANDS = [
 ]
 
 
+def _settings():
+    """Settings kept between sessions (on Linux in ~/.config/specset/specset.conf)."""
+    return QSettings("specset", "specset")
+
+
+def _start_dir():
+    """Folder to start a file dialog in: the last folder used, or the home folder."""
+    last = _settings().value("last_dir", "", type=str)
+    return last if last and Path(last).is_dir() else str(Path.home())
+
+
+def _remember_dir(path):
+    """Remember the folder containing a picked file or directory, for the next file dialog."""
+    _settings().setValue("last_dir", str(Path(path).parent))
+
+
 class _PathEdit(QWidget):
     """Line edit with a Browse button."""
 
@@ -158,7 +175,7 @@ class _PathEdit(QWidget):
         layout.addWidget(browse)
 
     def _browse(self):
-        start = self.edit.text() or str(Path.home())
+        start = self.edit.text() or _start_dir()
         if self.kind in (DIR, OUT_DIR):
             path = QFileDialog.getExistingDirectory(self, "Select directory", start)
         elif self.kind == FILE:
@@ -167,6 +184,7 @@ class _PathEdit(QWidget):
             path, _ = QFileDialog.getSaveFileName(self, "Save as", start, self.file_filter)
         if path:
             self.edit.setText(path)
+            _remember_dir(path)
 
     def text(self):
         return self.edit.text().strip()
@@ -201,6 +219,8 @@ class _CommandPage(QWidget):
                 w = QComboBox()
                 w.addItems(opts["choices"])
                 w.setEditable(opts.get("editable", False))
+                if "default" in opts:
+                    w.setCurrentText(opts["default"])
             elif kind == BOOL:
                 w = QCheckBox()
                 w.setChecked(opts.get("default", False))
@@ -410,15 +430,18 @@ def _fragment_label(frag):
     return label
 
 
-def _read_index(specset_path):
-    """Read _index.tsv of a specset into a list of (peptide, location)."""
-    rows = []
+def _iter_index(specset_path):
+    """Yield (peptide, location) from _index.tsv of a specset."""
     with open(Path(specset_path) / "_index.tsv") as f:
         for line in f:
             parts = line.split(maxsplit=1)
             if len(parts) == 2:
-                rows.append((parts[0], parts[1].strip()))
-    return rows
+                yield parts[0], parts[1].strip()
+
+
+def _read_index(specset_path):
+    """Read _index.tsv of a specset into a list of (peptide, location)."""
+    return list(_iter_index(specset_path))
 
 
 def _read_location_index(location_path):
@@ -654,19 +677,15 @@ def _nice_step(span, n_ticks):
     return 10 * magnitude
 
 
-_last_export_dir = None
-
-
 def _ask_export_path(parent, caption, default_name, suffix, file_filter):
     """Ask for a file to export to; return its path with the suffix, or None if cancelled."""
-    global _last_export_dir
-    start = Path(_last_export_dir or Path.home()) / default_name
+    start = Path(_start_dir()) / default_name
     path, _ = QFileDialog.getSaveFileName(parent, caption, str(start), file_filter)
     if not path:
         return None
     if not path.lower().endswith(suffix):
         path += suffix
-    _last_export_dir = str(Path(path).parent)
+    _remember_dir(path)
     return path
 
 
@@ -1010,7 +1029,7 @@ class _ViewerWidget(QWidget):
         self.location_path = None
 
         # specset selection
-        self.path_edit = QLineEdit()
+        self.path_edit = QLineEdit(_settings().value("viewer/specset", "", type=str))  # the last opened specset
         self.path_edit.setPlaceholderText("Specset directory")
         self.path_edit.returnPressed.connect(self._open_from_edit)
         browse = QPushButton("Browse…")
@@ -1094,9 +1113,10 @@ class _ViewerWidget(QWidget):
             QTimer.singleShot(0, lambda: self.psm_panel.align_fragments_to(self.spectrum))
 
     def _browse(self):
-        start = self.path_edit.text() or str(Path.home())
+        start = self.path_edit.text() or _start_dir()
         path = QFileDialog.getExistingDirectory(self, "Select specset directory", start)
         if path:
+            _remember_dir(path)
             self.path_edit.setText(path)
             self.open_specset(path)
 
@@ -1124,6 +1144,7 @@ class _ViewerWidget(QWidget):
         self.pep_model.set_rows(rows)
         self._clear_charges()
         self._update_pep_count()
+        _settings().setValue("viewer/specset", str(specset_path))
         self.window().statusBar().showMessage(f"Opened {specset_path}")
         if rows:
             self.pep_view.selectRow(0)
@@ -1265,6 +1286,7 @@ class _CompareViewerWidget(QWidget):
         self.path_edits = [_PathEdit(DIR), _PathEdit(DIR)]
         paths = QFormLayout()
         for side, edit in zip(self._SIDES, self.path_edits):
+            edit.edit.setText(_settings().value(f"compare/specset_{side}", "", type=str))  # the last compared specsets
             edit.edit.setPlaceholderText(f"Specset {side} directory")
             edit.edit.returnPressed.connect(self._compare)
             paths.addRow(f"Specset {side}:", edit)
@@ -1366,20 +1388,31 @@ class _CompareViewerWidget(QWidget):
                 QMessageBox.warning(self, "Not a specset", f"Specset {side}: no _index.tsv found in:\n{path}")
                 return
 
+        # read all of A; of B, keep only the peptides in A, so that a large B is not loaded into memory
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            indexes = [_read_index(path) for path in paths]
+            index_a = _read_index(paths[0])
+            locations_a = dict(index_a)
+            locations_b = {}
+            n_b = 0
+            for pep, location in _iter_index(paths[1]):
+                n_b += 1
+                if pep in locations_a:
+                    locations_b[pep] = location
         finally:
             QApplication.restoreOverrideCursor()
 
         self.specset_paths = paths
-        self.locations = [dict(index) for index in indexes]
-        overlap = [(pep,) for pep, _ in indexes[0] if pep in self.locations[1]]
-        self._totals = f"A: {len(self.locations[0])}, B: {len(self.locations[1])}"
+        self.locations = [locations_a, locations_b]
+        overlap = [(pep,) for pep, _ in index_a if pep in locations_b]
+        self._totals = f"A: {len(locations_a)}, B: {n_b}"
 
         self.pep_view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # keep the order of specset A
         self.pep_model.set_rows(overlap)
         self._update_pep_count()
+        settings = _settings()
+        for side, path in zip(self._SIDES, paths):
+            settings.setValue(f"compare/specset_{side}", str(path))
         self.window().statusBar().showMessage(f"Compared {paths[0]} and {paths[1]}: {len(overlap)} overlapping peptides")
         if overlap:
             self.pep_view.selectRow(0)
