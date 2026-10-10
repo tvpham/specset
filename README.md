@@ -15,7 +15,7 @@ pip install "specset[full]"
 The ```full``` installation includes a GUI application. 
 
 ### Linux
-On Linux, the installation is similar
+On Linux, the installation is as follows.
 ```
 python -m venv venv_specset
 
@@ -38,6 +38,7 @@ sudo apt install libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 li
 
 
 For experiments with AlphaPeptDeep, installation of the AlphaPeptDeep ecosystem is needed.
+
 ```
 pip install "alphabase[full-stable]"
 pip install "peptdeep[stable,gui-stable]"
@@ -61,7 +62,7 @@ The application can be started by executing the command
 specset-gui
 ```
 
-The application features three tabs: Viewer, Compare, and Tools. The Viewer tab allows users to browse a single specset. The Compare tab highlights the differences between two spec sets. The Tools tab directly maps to the available shell commands.
+The application features four tabs: Viewer, Compare, Tools, and About. The Viewer tab allows users to browse a single specset. The Compare tab highlights the differences between two spec sets. The Tools tab directly maps to the available shell commands. Finally, the About tab displays components of the application.
 
 There is a prebuilt application for Windows 11 in Releases.
 
