@@ -1709,8 +1709,7 @@ SPECSET_VERSION = "0.9.1"
 
 # Third-party software used by specset: (name, version, licence, URL)
 ACKNOWLEDGEMENTS = [
-    ("lxml", "5.3.0", "BSD-3-Clause", "https://lxml.de/"),
-    ("NumPy", "1.26.4", "BSD-3-Clause", "https://numpy.org/"),
+    ("lxml", "5.3.0", "BSD-3-Clause", "https://lxml.de/"),    
     ("pandas", "2.2.3", "BSD-3-Clause", "https://pandas.pydata.org/"),
     ("psm_utils", "1.5.5", "Apache-2.0", "https://github.com/CompOmics/psm_utils"),
     ("pyarrow (Apache Arrow)", "25.0.1", "Apache-2.0", "https://arrow.apache.org/"),
