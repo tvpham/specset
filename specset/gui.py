@@ -1705,7 +1705,7 @@ class _ToolsWidget(QWidget):
         self.window().statusBar().showMessage(message)
 
 
-SPECSET_VERSION = "0.9.1"
+SPECSET_VERSION = "0.9.2"
 
 # Third-party software used by specset: (name, version, licence, URL)
 ACKNOWLEDGEMENTS = [
@@ -1713,7 +1713,7 @@ ACKNOWLEDGEMENTS = [
     ("pandas", "2.2.3", "BSD-3-Clause", "https://pandas.pydata.org/"),
     ("psm_utils", "1.5.5", "Apache-2.0", "https://github.com/CompOmics/psm_utils"),
     ("pyarrow (Apache Arrow)", "25.0.1", "Apache-2.0", "https://arrow.apache.org/"),
-    ("PySide6 (Qt for Python)", "6.11.2", "LGPL-3.0", "https://doc.qt.io/qtforpython-6/"),
+    ("PySide6 (Qt for Python)", "6.12.0", "LGPL-3.0", "https://doc.qt.io/qtforpython-6/"),
     ("pyteomics", "4.7.5", "Apache-2.0", "https://pyteomics.readthedocs.io/"),
     ("Unimod database (unimod.xml)", "Downloaded 9 October 2026", "Design Science License", "https://www.unimod.org/"),
 ]
@@ -1732,12 +1732,11 @@ class _AboutWidget(QWidget):
             f"<h2>specset {html.escape(SPECSET_VERSION)}</h2>"
             "<p>Toolkit for manipulation of sets of mass spectra.</p>"
             "<h3>Acknowledgements</h3>"
-            "<p>specset is built and tested on the following open-source software. "
+            "<p>specset was built and tested on the following open-source software. "
             "We thank their authors and contributors.</p>"            
             "<table cellspacing='0' cellpadding='8'>"
             "<tr><th align='left'>Package</th><th align='left'>Version</th><th align='left'>Licence</th></tr>"
-            f"{rows}</table>"
-            "<p>Licence texts are available at the linked project pages.</p>"
+            f"{rows}</table>"            
         )
         label.setTextFormat(Qt.RichText)
         label.setOpenExternalLinks(True)

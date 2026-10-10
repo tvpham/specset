@@ -1,3 +1,5 @@
+"""Command line interfaces"""
+
 import argparse
 
 
@@ -83,6 +85,7 @@ def _add_merge_options(p):
 
 
 def main():
+
     parser = argparse.ArgumentParser(prog="specset", description="Toolkit for manipulation of a set of mass spectra")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -157,4 +160,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()

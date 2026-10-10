@@ -86,5 +86,5 @@ def get_precursor_mz(seq, charge, aa_mass):
     """
         Calculates the precursor m/z for the given sequence
     """
-
+    
     return mass.fast_mass(sequence=seq, charge=charge, aa_mass=aa_mass, ion_type='M')

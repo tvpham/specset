@@ -18,6 +18,7 @@ _FRAG_LOSS_MAP = {
     "*": "H3PO4", "-NH3": "NH3", "-H2O": "H2O", "-CO": "CO", "-H4COS": "H4COS",
 }
 
+
 def iter_specset_locations(specset_dir: str, n: Optional[int] = None) -> Iterator[Tuple[str, str]]:
     """
     Yields (peptide, location) pairs from the main _index.tsv file.
