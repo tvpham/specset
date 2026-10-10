@@ -1,12 +1,22 @@
 # specset
 
+<p align="center">
+<img src="images/favicon.svg" width="200">
+</p>
+
+<div align="center">
+
+**A lightweight toolkit for manipulation of peptide spectrum matches in mass spectrometry-based proteomics**
+
+</div>
+
 ## Installation
-Create a Python enviroment and install specset
+Create a Python enviroment and install specset using pip
 
 ### Windows
-On Windows, we have tested with the official Python distribution Python 3.12.9 at [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/). At the moment, AlphaPeptDeep does not work with later Python version. Open a command prompt at a working directory
+On Windows, we have tested with the official Python distribution Python 3.12.9 at [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/). At the moment, AlphaPeptDeep does not work with a newer Python version. Open a command prompt from a working directory
 ```
-py -m venv venv_specset
+python -m venv venv_specset
 
 venv_specset\Scripts\activate.bat
 
@@ -65,4 +75,22 @@ specset-gui
 The application features four tabs: Viewer, Compare, Tools, and About. The Viewer tab allows users to browse a single specset. The Compare tab highlights the differences between two spec sets. The Tools tab directly maps to the available shell commands. Finally, the About tab displays components of the application.
 
 There is a prebuilt application for Windows 11 in Releases.
+
+The following example visualizes the result of a DIA-NN search result using a experimental library.
+
+First, go to the **Tools** tab, select **DIA-NN report &rarr; specset**, browse to your DIA-NN result file report.parquet. Enter output file, for example, report.specset, then click Run.
+
+<img src="images/dianreport-to-specset.png" width="100%">
+
+Next, convert a spectral library obtained from Fragpipe pipeline to specset. Select **EasyPQP &rarr; specset**, browse to your library file, enter output filename, for example, library.specset, then click Run.
+
+<img src="images/easypqp-to-specset.png" width="100%">
+
+Now, you can explore the specsets. Go to the **Viewer** tab, browse to a specset, then click Open.
+
+<img src="images/viewer.png" width="100%">
+
+To compare a detected spectrum versus the library spectrum, Go to the **Compare** tab, browse to the two specsets, then click Compare.
+
+<img src="images/compare.png" width="100%">
 
