@@ -1705,27 +1705,19 @@ class _ToolsWidget(QWidget):
         self.window().statusBar().showMessage(message)
 
 
-# Third-party software used by specset: (name, distribution name for the version, licence, URL)
+SPECSET_VERSION = "0.9.1"
+
+# Third-party software used by specset: (name, version, licence, URL)
 ACKNOWLEDGEMENTS = [
-    ("lxml", "lxml", "BSD-3-Clause", "https://lxml.de/"),
-    ("NumPy", "numpy", "BSD-3-Clause", "https://numpy.org/"),
-    ("pandas", "pandas", "BSD-3-Clause", "https://pandas.pydata.org/"),
-    ("psm_utils", "psm_utils", "Apache-2.0", "https://github.com/CompOmics/psm_utils"),
-    ("pyarrow (Apache Arrow)", "pyarrow", "Apache-2.0", "https://arrow.apache.org/"),
-    ("PySide6 (Qt for Python)", "PySide6", "LGPL-3.0", "https://doc.qt.io/qtforpython-6/"),
-    ("pyteomics", "pyteomics", "Apache-2.0", "https://pyteomics.readthedocs.io/"),    
-    ("Unimod database (unimod.xml)", None, "Design Science License", "https://www.unimod.org/"),    
+    ("lxml", "5.3.0", "BSD-3-Clause", "https://lxml.de/"),
+    ("NumPy", "1.26.4", "BSD-3-Clause", "https://numpy.org/"),
+    ("pandas", "2.2.3", "BSD-3-Clause", "https://pandas.pydata.org/"),
+    ("psm_utils", "1.5.5", "Apache-2.0", "https://github.com/CompOmics/psm_utils"),
+    ("pyarrow (Apache Arrow)", "25.0.1", "Apache-2.0", "https://arrow.apache.org/"),
+    ("PySide6 (Qt for Python)", "6.11.2", "LGPL-3.0", "https://doc.qt.io/qtforpython-6/"),
+    ("pyteomics", "4.7.5", "Apache-2.0", "https://pyteomics.readthedocs.io/"),
+    ("Unimod database (unimod.xml)", "Downloaded 9 October 2026", "Design Science License", "https://www.unimod.org/"),
 ]
-
-
-def _package_version(name):
-    if name is None:
-        return "Downloaded 9 October 2026"
-    from importlib.metadata import PackageNotFoundError, version
-    try:
-        return version(name)
-    except PackageNotFoundError:
-        return "not installed"
 
 
 class _AboutWidget(QWidget):
@@ -1733,15 +1725,15 @@ class _AboutWidget(QWidget):
     def __init__(self):
         super().__init__()
         rows = "".join(
-            f"<tr><td><a href='{url}'>{html.escape(name)}</a></td><td>{html.escape(_package_version(dist))}</td>"
+            f"<tr><td><a href='{url}'>{html.escape(name)}</a></td><td>{html.escape(version)}</td>"
             f"<td>{html.escape(licence)}</td></tr>"
-            for name, dist, licence, url in ACKNOWLEDGEMENTS
+            for name, version, licence, url in ACKNOWLEDGEMENTS
         )
         label = QLabel(
-            f"<h2>specset {html.escape(_package_version('specset'))}</h2>"
-            "<p>Toolkit for manipulation of a set of mass spectra.</p>"
+            f"<h2>specset {html.escape(SPECSET_VERSION)}</h2>"
+            "<p>Toolkit for manipulation of sets of mass spectra.</p>"
             "<h3>Acknowledgements</h3>"
-            "<p>specset is built on the following open-source software. "
+            "<p>specset is built and tested on the following open-source software. "
             "We thank their authors and contributors.</p>"            
             "<table cellspacing='0' cellpadding='8'>"
             "<tr><th align='left'>Package</th><th align='left'>Version</th><th align='left'>Licence</th></tr>"
