@@ -9,7 +9,9 @@ description = "Toolkit for manipulation of peptide-spectrum matches in mass spec
 authors = [
     { name = "Thang Pham", email = "tp210901@gmail.com" }
 ]
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
 requires-python = ">=3.10"
 dependencies = ["pandas", "lxml", "pyteomics", "pyarrow"]
 

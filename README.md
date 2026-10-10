@@ -61,7 +61,7 @@ The application can be started by executing the command
 specset-gui
 ```
 
-The application features three tabs: Viewer, Compare, and Tools. The Viewer tab allows users to browse a single spec set. The Compare tab highlights the differences between two spec sets. The Tools tab directly maps to the available shell commands.
+The application features three tabs: Viewer, Compare, and Tools. The Viewer tab allows users to browse a single specset. The Compare tab highlights the differences between two spec sets. The Tools tab directly maps to the available shell commands.
 
 There is a prebuilt application for Windows 11 in Releases.
 
