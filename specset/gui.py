@@ -1705,14 +1705,14 @@ class _ToolsWidget(QWidget):
         self.window().statusBar().showMessage(message)
 
 
-SPECSET_VERSION = "0.9.2"
+SPECSET_VERSION = "0.9.3"
 
 # Third-party software used by specset: (name, version, licence, URL)
 ACKNOWLEDGEMENTS = [
-    ("lxml", "5.3.0", "BSD-3-Clause", "https://lxml.de/"),    
-    ("pandas", "2.2.3", "BSD-3-Clause", "https://pandas.pydata.org/"),
+    ("lxml", "6.1.3", "BSD-3-Clause", "https://lxml.de/"),    
+    ("pandas", "3.0.6", "BSD-3-Clause", "https://pandas.pydata.org/"),
     ("psm_utils", "1.5.5", "Apache-2.0", "https://github.com/CompOmics/psm_utils"),
-    ("pyarrow (Apache Arrow)", "25.0.1", "Apache-2.0", "https://arrow.apache.org/"),
+    ("pyarrow (Apache Arrow)", "26.0.0", "Apache-2.0", "https://arrow.apache.org/"),
     ("PySide6 (Qt for Python)", "6.12.0", "LGPL-3.0", "https://doc.qt.io/qtforpython-6/"),
     ("pyteomics", "4.7.5", "Apache-2.0", "https://pyteomics.readthedocs.io/"),
     ("Unimod database (unimod.xml)", "Downloaded 9 October 2026", "Design Science License", "https://www.unimod.org/"),
