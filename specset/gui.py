@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QAbstractTableModel, QMarginsF, QModelIndex, QObject, QPoint, QRect, QRectF, QSize, QSortFilterProxyModel, Qt, QThread,
-    QSettings, QTimer, Signal,
+    QTimer, Signal,
 )
 from PySide6.QtGui import QColor, QFont, QIcon, QPageLayout, QPageSize, QPainter, QPalette, QPdfWriter, QPen, QTextCursor
 from PySide6.QtWidgets import (
@@ -143,20 +143,19 @@ COMMANDS = [
 ]
 
 
-def _settings():
-    """Settings kept between sessions (on Linux in ~/.config/specset/specset.conf)."""
-    return QSettings("specset", "specset")
+# Last folder used in a file dialog, remembered for this session only
+_last_dir = ""
 
 
 def _start_dir():
-    """Folder to start a file dialog in: the last folder used, or the home folder."""
-    last = _settings().value("last_dir", "", type=str)
-    return last if last and Path(last).is_dir() else str(Path.home())
+    """Folder to start a file dialog in: the last folder used in this session, or the home folder."""
+    return _last_dir if _last_dir and Path(_last_dir).is_dir() else str(Path.home())
 
 
 def _remember_dir(path):
     """Remember the folder containing a picked file or directory, for the next file dialog."""
-    _settings().setValue("last_dir", str(Path(path).parent))
+    global _last_dir
+    _last_dir = str(Path(path).parent)
 
 
 class _PathEdit(QWidget):
@@ -1029,7 +1028,7 @@ class _ViewerWidget(QWidget):
         self.location_path = None
 
         # specset selection
-        self.path_edit = QLineEdit(_settings().value("viewer/specset", "", type=str))  # the last opened specset
+        self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("Specset directory")
         self.path_edit.returnPressed.connect(self._open_from_edit)
         browse = QPushButton("Browse…")
@@ -1144,7 +1143,6 @@ class _ViewerWidget(QWidget):
         self.pep_model.set_rows(rows)
         self._clear_charges()
         self._update_pep_count()
-        _settings().setValue("viewer/specset", str(specset_path))
         self.window().statusBar().showMessage(f"Opened {specset_path}")
         if rows:
             self.pep_view.selectRow(0)
@@ -1286,7 +1284,6 @@ class _CompareViewerWidget(QWidget):
         self.path_edits = [_PathEdit(DIR), _PathEdit(DIR)]
         paths = QFormLayout()
         for side, edit in zip(self._SIDES, self.path_edits):
-            edit.edit.setText(_settings().value(f"compare/specset_{side}", "", type=str))  # the last compared specsets
             edit.edit.setPlaceholderText(f"Specset {side} directory")
             edit.edit.returnPressed.connect(self._compare)
             paths.addRow(f"Specset {side}:", edit)
@@ -1410,9 +1407,6 @@ class _CompareViewerWidget(QWidget):
         self.pep_view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # keep the order of specset A
         self.pep_model.set_rows(overlap)
         self._update_pep_count()
-        settings = _settings()
-        for side, path in zip(self._SIDES, paths):
-            settings.setValue(f"compare/specset_{side}", str(path))
         self.window().statusBar().showMessage(f"Compared {paths[0]} and {paths[1]}: {len(overlap)} overlapping peptides")
         if overlap:
             self.pep_view.selectRow(0)
