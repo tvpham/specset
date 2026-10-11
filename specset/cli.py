@@ -37,6 +37,7 @@ def _cmd_diannreport_to_specset(args):
 
     if args.column and not args.values:
         raise SystemExit("diannreport_to_specset: --values is required with --column")
+    
     diannreport_to_specset(args.diannreport, args.out_dir, column=args.column or "", values=args.values,
                            max_no_files_per_directory=args.max_files_in_directory,
                            overwrite=args.overwrite, by_Run=args.by_Run)

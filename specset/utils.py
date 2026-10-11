@@ -50,6 +50,7 @@ def iter_specset_locations(specset_dir: str, n: Optional[int] = None) -> Iterato
                 yield parts[0], parts[1]
                 i += 1
 
+
 def iter_specset_files(specset_dir: str, n: Optional[int] = None) -> Iterator[Tuple[str, str, Optional[str]]]:
     """
     Yields (location, file_name, charge) for each individual PSM file.
@@ -79,6 +80,7 @@ def iter_specset_files(specset_dir: str, n: Optional[int] = None) -> Iterator[Tu
                 file_name = parts[0]
                 charge = parts[1] if len(parts) > 1 else None
                 yield location, file_name, charge
+
 
 def matches_intensities_to_psm(matches: str, intensities: str, sep: str = ";", max_intensity: float = -1.0) -> Optional[pd.DataFrame]:
     """
@@ -148,6 +150,7 @@ def matches_intensities_to_psm(matches: str, intensities: str, sep: str = ";", m
         df["RelativeIntensity"] = df["RelativeIntensity"] / df["RelativeIntensity"].max() * max_intensity
 
     return df
+
 
 class _specset_writer:
     """
@@ -778,6 +781,7 @@ def _specset_stream_to_string(specset_dir: str, n: Optional[int] = None) -> io.S
 
     return string_buffer
 
+
 def specset_to_alphapeptdeep_string(specset_dir: str, n: Optional[int] = None) -> Iterator[io.StringIO]:
     """
     Yields string buffers mapped to the AlphaPeptDeep spec format.
@@ -1208,6 +1212,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
 
     print("\nDone.")
 
+
 def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_directory: int = 5000, mode: str = "ignore", flush_threshold: int = 1000) -> None:
     """
     Merge specset_b into specset_a in place.
@@ -1357,6 +1362,7 @@ def merge_specsets_inplace(specset_a: str, specset_b: str, max_files_in_director
     with open(index_file, "w", newline="") as f:
         for key, value in pep_dict.items():
             f.write(f"{key}\t{value}\n")
+
 
 def summarize(specset_a: str, specset_b: Optional[str] = None) -> None:
     """

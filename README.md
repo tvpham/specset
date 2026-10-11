@@ -56,7 +56,13 @@ pip install "peptdeep[stable,gui-stable]"
 
 ## Usage
 
-Follow examples in the notebooks or check the command line usage. For example, the following two commands import a MaxQuant search output txt folder into a specset and export the specset to a spectral library
+Follow examples in the notebooks or check the command line usage.
+
+```
+specset --help
+```
+
+ The following two command lines import a MaxQuant search output txt folder into a specset and export the specset to a spectral library
 
 ```
 specset maxquant_to_specset --additional-column Score=score --additional-column Proteins=proteins --additional-column "Gene Names"=genes txt txt.specset
@@ -78,19 +84,32 @@ There is a prebuilt application for Windows 11 in Releases.
 
 The following example visualizes the result of a DIA-NN search result using a experimental library.
 
+### Creating specsets
+
 First, go to the **Tools** tab, select **DIA-NN report &rarr; specset**, browse to your DIA-NN result file report.parquet. Enter output file, for example, report.specset, then click Run.
 
-<img src="images/dianreport-to-specset.png" width="100%">
+<div align="center">
+<img src="images/dianreport-to-specset.png" width="90%">
+</div>
 
 Next, convert a spectral library obtained from Fragpipe pipeline to specset. Select **EasyPQP &rarr; specset**, browse to your library file, enter output filename, for example, library.specset, then click Run.
 
-<img src="images/easypqp-to-specset.png" width="100%">
+<div align="center">
+<img src="images/easypqp-to-specset.png" width="90%">
+</div>
 
-Now, you can explore the specsets. Go to the **Viewer** tab, browse to a specset, then click Open.
+### Exploring a specset
 
-<img src="images/viewer.png" width="100%">
+You can explore the created specsets. Go to the **Viewer** tab, browse to a specset, then click Open.
+
+<div align="center">
+<img src="images/viewer.png" width="90%">
+</div>
+
+### Comparing two specsets
 
 To compare a detected spectrum versus the library spectrum, Go to the **Compare** tab, browse to the two specsets, then click Compare.
 
-<img src="images/compare.png" width="100%">
-
+<div align="center">
+<img src="images/compare.png" width="90%">
+</div>
