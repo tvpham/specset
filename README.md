@@ -108,7 +108,7 @@ You can explore the created specsets. Go to the **Viewer** tab, browse to a spec
 
 ### Comparing two specsets
 
-To compare a detected spectrum versus the library spectrum, Go to the **Compare** tab, browse to the two specsets, then click Compare.
+To compare a detected spectrum versus the library spectrum, Go to the **Compare** tab, browse to the two specsets (for performance, select the smaller one first), then click Compare.
 
 <div align="center">
 <img src="images/compare.png" width="90%">
