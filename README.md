@@ -86,7 +86,7 @@ The following example visualizes the result of a DIA-NN search result using a ex
 
 ### Creating specsets
 
-First, go to the **Tools** tab, select **DIA-NN report &rarr; specset**, browse to your DIA-NN result file report.parquet. Enter output file, for example, report.specset, then click Run.
+First, go to the **Tools** tab, select **DIA-NN report &rarr; specset**, browse to your DIA-NN result file report.parquet (```--export-quant``` must be included in the DIA-NN search). Enter output file, for example, report.specset, then click Run.
 
 <div align="center">
 <img src="images/dianreport-to-specset.png" width="90%">

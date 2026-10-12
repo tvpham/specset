@@ -47,8 +47,7 @@ COMMANDS = [
             ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "msms.txt column=specset name, one per line\ne.g. Gene Names=genes",
                                                                        "default": "Score=score\nProteins=proteins\nGene Names=genes"}),
             ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("n", "Max rows (-1 = all)", INT, {"default": -1, "min": -1}),
-            ("overwrite", "Overwrite output", BOOL, {}),
+            ("n", "Max rows (-1 = all)", INT, {"default": -1, "min": -1}),            
         ],
     },
     {
@@ -58,8 +57,7 @@ COMMANDS = [
         "fields": [
             ("easypqp_file", "EasyPQP library", FILE, {"filter": "TSV files (*.tsv *.txt);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("overwrite", "Overwrite output", BOOL, {}),
+            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),            
         ],
     },
     {
@@ -69,8 +67,7 @@ COMMANDS = [
         "fields": [
             ("diannlib_file", "DIA-NN library", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("overwrite", "Overwrite output", BOOL, {}),
+            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),            
         ],
     },
     {
@@ -80,22 +77,21 @@ COMMANDS = [
         "fields": [
             ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("string_equal", "Keep if equal", KEY_VALUES, {"multi": True,
-                                                          "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
-                                                          "tooltip": "Keep only rows whose column equals one of the values, compared as text."}),
-            ("string_not_equal", "Drop if equal", KEY_VALUES, {"multi": True,
-                                                              "placeholder": "column=value, one per line (optional)",
-                                                              "tooltip": "Drop rows whose column equals one of the values, compared as text."}),
-            ("double_less", "Keep if less than", KEY_VALUES, {"number": True,
+            ("double_less", "NUMERIC keep if less than or equal to", KEY_VALUES, {"number": True,
                                                              "default": "Q.Value=0.01\nPG.Q.Value=0.05\nLib.Peptidoform.Q.Value=0.01\n"
                                                                         "Global.Q.Value=0.01\nGlobal.PG.Q.Value=0.01",
                                                              "placeholder": "column=number, one per line (optional)\ne.g. Q.Value=0.01",
-                                                             "tooltip": "Keep only rows whose column, read as a number, is less than the number."}),
-            ("double_greater", "Keep if greater than", KEY_VALUES, {"number": True,
+                                                             "tooltip": "Keep only rows whose column, read as a number, is less than or equal to the number."}),
+            ("double_greater", "NUMERIC keep if greater than or equal to", KEY_VALUES, {"number": True,
                                                                    "placeholder": "column=number, one per line (optional)",
-                                                                   "tooltip": "Keep only rows whose column, read as a number, is greater than the number."}),
+                                                                   "tooltip": "Keep only rows whose column, read as a number, is greater than or equal to the number."}),
+            ("string_equal", "STRING keep if equal", KEY_VALUES, {"multi": True,
+                                                          "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
+                                                          "tooltip": "Keep only rows whose column equals one of the values, compared as text."}),
+            ("string_not_equal", "STRING drop if equal", KEY_VALUES, {"multi": True,
+                                                              "placeholder": "column=value, one per line (optional)",
+                                                              "tooltip": "Drop rows whose column equals one of the values, compared as text."}),
             ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("overwrite", "Overwrite output", BOOL, {"tooltip": "Delete an output specset first if it exists and is not empty. If unchecked, a non-empty output specset is an error."}),
         ],
     },
     {
@@ -105,8 +101,7 @@ COMMANDS = [
         "fields": [
             ("psmlist_file", "PSM list file", FILE, {"filter": "Text files (*.txt *.tsv);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("overwrite", "Overwrite output", BOOL, {}),
+            ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),            
         ],
     },
     {
@@ -135,7 +130,6 @@ COMMANDS = [
                                       "tooltip": "For peptides in both: 'both' keeps the PSMs from A and B, 'ignore' skips the ones from B."}),
             ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
             ("flush_threshold", "Flush threshold", INT, {"default": 1000, "min": 1}),
-            ("overwrite", "Overwrite output", BOOL, {}),
         ],
     },
     {
