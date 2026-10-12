@@ -2,7 +2,7 @@ import csv
 
 import pytest
 
-from specset.utils import _psm_stream_to_specset, specset_to_alphapeptdeep_string
+from specset.utils import specset_to_alphapeptdeep_string
 
 EXPECTED_HEADER = [
     "FragmentLossType",
@@ -15,13 +15,6 @@ EXPECTED_HEADER = [
     "RT",
     "IonMobility",
 ]
-
-
-def build_specset(tmp_path, psms, **kwargs):
-    """Write a specset directory from a list of PSM dicts using the writer."""
-    specset_dir = tmp_path / "specset"
-    _psm_stream_to_specset(iter(psms), str(specset_dir), **kwargs)
-    return specset_dir
 
 
 def build_specset_raw(tmp_path, psms):
@@ -49,22 +42,11 @@ def read_buffer(buffer):
     return reader.fieldnames, list(reader)
 
 
-def make_psm(pep, z=2, rt=1.0, im=0.1, matches="b2;y5", intensities="100;200"):
-    return {
-        "pep": pep,
-        "z": z,
-        "rt": rt,
-        "im": im,
-        "matches": matches,
-        "intensities": intensities,
-    }
-
-
 # One buffer is yielded per PSM file, regardless of the number of peptides.
-def test_yields_one_buffer_per_psm(tmp_path):
-    specset_dir = build_specset(
-        tmp_path,
-        [make_psm("PEPADA", matches="b2"), make_psm("PEPADK", matches="b2")],
+def test_yields_one_buffer_per_psm(tmp_path, specset_builder, psm_factory):
+    specset_dir = specset_builder(
+        tmp_path / "specset",
+        [psm_factory("PEPADA", matches="b2"), psm_factory("PEPADK", matches="b2")],
     )
 
     buffers = list(specset_to_alphapeptdeep_string(str(specset_dir)))
@@ -73,8 +55,8 @@ def test_yields_one_buffer_per_psm(tmp_path):
 
 
 # The header of each yielded buffer lists the AlphaPeptDeep columns in the expected order.
-def test_header_and_column_order(tmp_path):
-    specset_dir = build_specset(tmp_path, [make_psm("PEPTIDE")])
+def test_header_and_column_order(tmp_path, specset_builder, psm_factory):
+    specset_dir = specset_builder(tmp_path / "specset", [psm_factory("PEPTIDE")])
 
     (buffer,) = list(specset_to_alphapeptdeep_string(str(specset_dir)))
 
@@ -83,8 +65,8 @@ def test_header_and_column_order(tmp_path):
 
 
 # Fragment and metadata values in the buffer match the PSM and its ms2 fragments.
-def test_fragment_and_metadata_values(tmp_path):
-    specset_dir = build_specset(tmp_path, [make_psm("PEPTIDE")])
+def test_fragment_and_metadata_values(tmp_path, specset_builder, psm_factory):
+    specset_dir = specset_builder(tmp_path / "specset", [psm_factory("PEPTIDE")])
 
     (buffer,) = list(specset_to_alphapeptdeep_string(str(specset_dir)))
 
@@ -111,8 +93,8 @@ def test_fragment_and_metadata_values(tmp_path):
     "pep",
     ["PEPTIDE", "(UniMod:1)PEPTIDE", "PEPM(UniMod:35)TIDE", "_PEPTIDE_"],
 )
-def test_modified_peptide_written_as_is(tmp_path, pep):
-    specset_dir = build_specset(tmp_path, [make_psm(pep, matches="b2", intensities="10")])
+def test_modified_peptide_written_as_is(tmp_path, pep, specset_builder, psm_factory):
+    specset_dir = specset_builder(tmp_path / "specset", [psm_factory(pep, matches="b2", intensities="10")])
 
     (buffer,) = list(specset_to_alphapeptdeep_string(str(specset_dir)))
 
@@ -121,12 +103,12 @@ def test_modified_peptide_written_as_is(tmp_path, pep):
 
 
 # PSMs of the same peptide are yielded in __index.tsv order.
-def test_multiple_psms_same_peptide_in_psm_order(tmp_path):
-    specset_dir = build_specset(
-        tmp_path,
+def test_multiple_psms_same_peptide_in_psm_order(tmp_path, specset_builder, psm_factory):
+    specset_dir = specset_builder(
+        tmp_path / "specset",
         [
-            make_psm("PEPTIDE", z=2, matches="b2", intensities="100"),
-            make_psm("PEPTIDE", z=3, matches="b2", intensities="300"),
+            psm_factory("PEPTIDE", z=2, matches="b2", intensities="100"),
+            psm_factory("PEPTIDE", z=3, matches="b2", intensities="300"),
         ],
     )
 
@@ -136,10 +118,10 @@ def test_multiple_psms_same_peptide_in_psm_order(tmp_path):
 
 
 # n limits the number of peptides processed, not the number of PSMs within one peptide.
-def test_n_limits_number_of_peptides(tmp_path):
-    specset_dir = build_specset(
-        tmp_path,
-        [make_psm(p, matches="b2", intensities="10") for p in ["PEPADA", "PEPADK", "PEPADR"]],
+def test_n_limits_number_of_peptides(tmp_path, specset_builder, psm_factory):
+    specset_dir = specset_builder(
+        tmp_path / "specset",
+        [psm_factory(p, matches="b2", intensities="10") for p in ["PEPADA", "PEPADK", "PEPADR"]],
     )
 
     buffers = list(specset_to_alphapeptdeep_string(str(specset_dir), n=2))
