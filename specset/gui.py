@@ -28,7 +28,7 @@ INT = "int"
 OPT_INT = "opt_int"      # 0 means None ("All")
 CHOICE = "choice"
 BOOL = "bool"
-KEY_VALUES = "key_values"  # one KEY=VALUE per line -> dict
+KEY_VALUES = "key_values"  # one KEY=VALUE per line -> dict ("multi": values as lists, "number": values as floats)
 TEXT = "text"              # single line of text -> str ("" if empty)
 LINES = "lines"            # one value per line -> list of str
 
@@ -76,17 +76,24 @@ COMMANDS = [
     {
         "func": "diannreport_to_specset",
         "title": "DIA-NN report → specset",
-        "help": "Convert a DIA-NN parquet report to a specset. With 'One specset per run', create one specset per run, "
-                "named <Run>.specset in the output directory.",
+        "help": "Convert a DIA-NN parquet report to a specset.",
         "fields": [
             ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
-            ("out_dir", "Output specset", OUT_DIR, {"parent_if": "by_Run",
-                                                    "tooltip": "With 'One specset per run', the directory in which the <Run>.specset directories are created."}),
-            ("by_Run", "One specset per run", BOOL, {}),
-            ("column", "Select rows on column", TEXT, {"placeholder": "Optional, e.g. Run",
-                                                      "tooltip": "Report column to select rows on. Leave empty to import all rows."}),
-            ("values", "Column values", LINES, {"placeholder": "One value per line, e.g.\nplasma1\nplasma2", "required_with": "column",
-                                               "tooltip": "Import only the rows whose value in the column above is one of these."}),
+            ("out_dir", "Output specset", OUT_DIR, {}),
+            ("string_equal", "Keep if equal", KEY_VALUES, {"multi": True,
+                                                          "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
+                                                          "tooltip": "Keep only rows whose column equals one of the values, compared as text."}),
+            ("string_not_equal", "Drop if equal", KEY_VALUES, {"multi": True,
+                                                              "placeholder": "column=value, one per line (optional)",
+                                                              "tooltip": "Drop rows whose column equals one of the values, compared as text."}),
+            ("double_less", "Keep if less than", KEY_VALUES, {"number": True,
+                                                             "default": "Q.Value=0.01\nPG.Q.Value=0.05\nLib.Peptidoform.Q.Value=0.01\n"
+                                                                        "Global.Q.Value=0.01\nGlobal.PG.Q.Value=0.01",
+                                                             "placeholder": "column=number, one per line (optional)\ne.g. Q.Value=0.01",
+                                                             "tooltip": "Keep only rows whose column, read as a number, is less than the number."}),
+            ("double_greater", "Keep if greater than", KEY_VALUES, {"number": True,
+                                                                   "placeholder": "column=number, one per line (optional)",
+                                                                   "tooltip": "Keep only rows whose column, read as a number, is greater than the number."}),
             ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
             ("overwrite", "Overwrite output", BOOL, {"tooltip": "Delete an output specset first if it exists and is not empty. If unchecked, a non-empty output specset is an error."}),
         ],
@@ -285,8 +292,16 @@ class _CommandPage(QWidget):
                         continue
                     if "=" not in line:
                         raise ValueError(f"'{self._label(name)}': expected KEY=VALUE, got '{line}'")
-                    key, value = line.split("=", 1)
-                    d[key.strip()] = value.strip()
+                    key, value = (part.strip() for part in line.split("=", 1))
+                    if opts.get("number"):
+                        try:
+                            value = float(value)
+                        except ValueError:
+                            raise ValueError(f"'{self._label(name)}': expected KEY=NUMBER, got '{line}'")
+                    if opts.get("multi"):  # repeated keys collect their values in a list
+                        d.setdefault(key, []).append(value)
+                    else:
+                        d[key] = value
                 kwargs[name] = d
             elif kind == TEXT:
                 kwargs[name] = w.text().strip()

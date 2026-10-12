@@ -11,6 +11,15 @@ def _key_value(s):
     return key, value
 
 
+def _key_number(s):
+    """Parse a KEY=NUMBER command line argument into a (key, float) tuple."""
+    key, value = _key_value(s)
+    try:
+        return key, float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected KEY=NUMBER, got '{s}'")
+
+
 def _cmd_maxquant_to_specset(args):
     from .utils import maxquant_to_specset
 
@@ -32,15 +41,21 @@ def _cmd_diannlib_to_specset(args):
                         overwrite=args.overwrite)
 
 
+def _multi_dict(pairs):
+    """[(key, value), ...] -> {key: [value, ...]}, keeping repeated keys."""
+    d = {}
+    for key, value in pairs:
+        d.setdefault(key, []).append(value)
+    return d
+
+
 def _cmd_diannreport_to_specset(args):
     from .utils import diannreport_to_specset
 
-    if args.column and not args.values:
-        raise SystemExit("diannreport_to_specset: --values is required with --column")
-    
-    diannreport_to_specset(args.diannreport, args.out_dir, column=args.column or "", values=args.values,
-                           max_no_files_per_directory=args.max_files_in_directory,
-                           overwrite=args.overwrite, by_Run=args.by_Run)
+    diannreport_to_specset(args.diannreport, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
+                           overwrite=args.overwrite,
+                           string_equal=_multi_dict(args.string_equal), string_not_equal=_multi_dict(args.string_not_equal),
+                           double_less=dict(args.double_less), double_greater=dict(args.double_greater))
 
 
 def _cmd_psmlist_to_specset(args):
@@ -114,14 +129,19 @@ def main():
     _add_overwrite(p)
     p.set_defaults(func=_cmd_diannlib_to_specset)
 
-    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to a specset, or one specset per run")
+    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to a specset")
     p.add_argument("diannreport", help="DIA-NN report parquet file")
-    p.add_argument("out_dir", help="Output specset directory; with --by-Run, the directory in which one <Run>.specset is created per run")
+    p.add_argument("out_dir", help="Output specset directory")
     _add_max_files(p)
-    p.add_argument("--by-Run", dest="by_Run", action="store_true", help="Create one specset per run (default: one specset with all runs)")
-    p.add_argument("--column", default="", help="Report column to select rows on, e.g. 'Run' (default: import all rows)")
-    p.add_argument("--values", nargs="+", default=[], metavar="VALUE",
-                   help="With --column, import only the rows whose value in that column is one of these, e.g. --values plasma1 plasma2")
+    p.add_argument("--string-equal", action="append", default=[], type=_key_value, metavar="COLUMN=VALUE",
+                   help="Keep only rows whose COLUMN equals VALUE, compared as text; repeat for more values, "
+                        "e.g. --string-equal Run=plasma1 --string-equal Run=plasma2")
+    p.add_argument("--string-not-equal", action="append", default=[], type=_key_value, metavar="COLUMN=VALUE",
+                   help="Drop rows whose COLUMN equals VALUE, compared as text (repeatable)")
+    p.add_argument("--double-less", action="append", default=[], type=_key_number, metavar="COLUMN=NUMBER",
+                   help="Keep only rows whose COLUMN is less than NUMBER, e.g. --double-less Q.Value=0.01 (repeatable)")
+    p.add_argument("--double-greater", action="append", default=[], type=_key_number, metavar="COLUMN=NUMBER",
+                   help="Keep only rows whose COLUMN is greater than NUMBER (repeatable)")
     p.add_argument("--overwrite", action="store_true",
                    help="Delete an output specset first if it exists and is not empty (default: fail)")
     p.set_defaults(func=_cmd_diannreport_to_specset)
