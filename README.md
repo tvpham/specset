@@ -86,7 +86,7 @@ The following example visualizes the result of a DIA-NN search result using a ex
 
 ### Creating specsets
 
-First, go to the **Tools** tab, select **DIA-NN report &rarr; specset**, browse to your DIA-NN result file report.parquet (```--export-quant``` must be included in the DIA-NN search). Enter output file, for example, report.specset, then click Run.
+First, go to the **Tools** tab, select **DIA-NN report &rarr; specset**, browse to your DIA-NN result file report.parquet (```--export-quant``` must be included in the DIA-NN search), fill out the desired filters, and enter output file, for example, report.specset, then click Run.
 
 <div align="center">
 <img src="images/dianreport-to-specset.png" width="90%">
@@ -113,3 +113,25 @@ To compare a detected spectrum versus the library spectrum, Go to the **Compare*
 <div align="center">
 <img src="images/compare.png" width="90%">
 </div>
+
+### Export to PDF
+
+If you want to generate a PDF report of all proteins identified by a single peptide in a single run, you can use R or Excel to compile the peptide list. In this example, the Excel COUNTIF function was used to count the number of missing values (NAs) across a dataset of 3 samples. We then filtered for rows where the peptide count is one (n_peptides = 1) and the number of NAs is 2.
+
+<div align="center">
+<img src="images/excel.png" width="90%">
+</div>
+
+In **DIA-NN report &rarr; specset**, use Stripped.Sequence under ``` Select rows on column```, and copy and paste your selected peptides into the ```Column values```  to generate a specset.
+
+<div align="center">
+<img src="images/dianreport-to-specset-selection.png" width="90%">
+</div>
+
+Go to the **Viewer** tab, open the newly created specset, then click ```Export all PDF...```.
+
+<div align="center">
+<img src="images/export-pdf.png" width="90%">
+</div>
+
+There may be more PSMs than peptides because a single peptide can be identified in multiple charge states.
