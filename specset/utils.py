@@ -625,9 +625,9 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
         for key, v in string_not_equal.items():
             mask &= ~chunk[key].astype(str).isin(v)
         for key, v in double_less.items():
-            mask &= pd.to_numeric(chunk[key], errors="coerce") < float(v)
+            mask &= pd.to_numeric(chunk[key], errors="coerce") <= float(v)
         for key, v in double_greater.items():
-            mask &= pd.to_numeric(chunk[key], errors="coerce") > float(v)
+            mask &= pd.to_numeric(chunk[key], errors="coerce") >= float(v)
         return mask
 
     # fragment id: type, number, loss, charge, m/z, e.g. "y8-unknown^1/816.403259"
