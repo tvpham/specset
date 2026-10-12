@@ -584,10 +584,10 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
         {column: values}: drop the rows whose value in column is one of values (compared as text).
     double_less : dict, optional
         {column: threshold}: keep only the rows whose value in column, read as a double, is less
-        than threshold, e.g. {"Q.Value": 0.01}.
+        than or equal to threshold, e.g. {"Q.Value": 0.01}.
     double_greater : dict, optional
         {column: threshold}: keep only the rows whose value in column, read as a double, is
-        greater than threshold.
+        greater than or equal to threshold.
         Rows with a missing or non-numeric value fail the double filters.
 
     Returns
