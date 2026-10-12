@@ -11,43 +11,54 @@ def _key_value(s):
     return key, value
 
 
+def _key_number(s):
+    """Parse a KEY=NUMBER command line argument into a (key, float) tuple."""
+    key, value = _key_value(s)
+    try:
+        return key, float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected KEY=NUMBER, got '{s}'")
+
+
 def _cmd_maxquant_to_specset(args):
     from .utils import maxquant_to_specset
 
     maxquant_to_specset(args.txt_dir, args.out_dir, additional_columns=dict(args.additional_column),
-                        max_files_in_directory=args.max_files_in_directory, n=args.n, overwrite=args.overwrite)
+                        max_files_in_directory=args.max_files_in_directory, n=args.n)
 
 
 def _cmd_easypqp_to_specset(args):
     from .utils import easypqp_to_specset
 
-    easypqp_to_specset(args.easypqp_file, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
-                       overwrite=args.overwrite)
+    easypqp_to_specset(args.easypqp_file, args.out_dir, max_no_files_per_directory=args.max_files_in_directory)
 
 
 def _cmd_diannlib_to_specset(args):
     from .utils import diannlib_to_specset
 
-    diannlib_to_specset(args.diannlib_file, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
-                        overwrite=args.overwrite)
+    diannlib_to_specset(args.diannlib_file, args.out_dir, max_no_files_per_directory=args.max_files_in_directory)
+
+
+def _multi_dict(pairs):
+    """[(key, value), ...] -> {key: [value, ...]}, keeping repeated keys."""
+    d = {}
+    for key, value in pairs:
+        d.setdefault(key, []).append(value)
+    return d
 
 
 def _cmd_diannreport_to_specset(args):
     from .utils import diannreport_to_specset
 
-    if args.column and not args.values:
-        raise SystemExit("diannreport_to_specset: --values is required with --column")
-    
-    diannreport_to_specset(args.diannreport, args.out_dir, column=args.column or "", values=args.values,
-                           max_no_files_per_directory=args.max_files_in_directory,
-                           overwrite=args.overwrite, by_Run=args.by_Run)
+    diannreport_to_specset(args.diannreport, args.out_dir, max_no_files_per_directory=args.max_files_in_directory,
+                           string_equal=_multi_dict(args.string_equal), string_not_equal=_multi_dict(args.string_not_equal),
+                           double_less=dict(args.double_less), double_greater=dict(args.double_greater))
 
 
 def _cmd_psmlist_to_specset(args):
     from .utils import psmlist_to_specset
 
-    psmlist_to_specset(args.psmlist_file, args.out_dir, max_files_in_directory=args.max_files_in_directory,
-                       overwrite=args.overwrite)
+    psmlist_to_specset(args.psmlist_file, args.out_dir, max_files_in_directory=args.max_files_in_directory)
 
 
 def _cmd_specset_to_speclib(args):
@@ -61,7 +72,7 @@ def _cmd_merge_specsets(args):
     from .utils import merge_specsets
 
     merge_specsets(args.specset_a, args.specset_b, args.specset_out, max_files_in_directory=args.max_files_in_directory,
-                   mode=args.mode, flush_threshold=args.flush_threshold, overwrite=args.overwrite)
+                   mode=args.mode, flush_threshold=args.flush_threshold)
 
 
 def _cmd_summarize(args):
@@ -72,10 +83,6 @@ def _cmd_summarize(args):
 
 def _add_max_files(p):
     p.add_argument("--max-files-in-directory", type=int, default=5000, help="Number of PSM files per batch folder (default: 5000)")
-
-
-def _add_overwrite(p):
-    p.add_argument("--overwrite", action="store_true", help="Delete the output directory first if it exists and is not empty (default: False)")
 
 
 def _add_merge_options(p):
@@ -97,40 +104,39 @@ def main():
                    help="msms.txt column to keep and the name to use in the specset, e.g. 'Gene Names=genes' (repeatable)")
     _add_max_files(p)
     p.add_argument("-n", type=int, default=-1, help="Only convert the first N PSMs (default: all)")
-    _add_overwrite(p)
     p.set_defaults(func=_cmd_maxquant_to_specset)
 
     p = subparsers.add_parser("easypqp_to_specset", help="Convert an EasyPQP library TSV to a specset")
     p.add_argument("easypqp_file", help="EasyPQP library TSV file")
     p.add_argument("out_dir", help="Output specset directory")
     _add_max_files(p)
-    _add_overwrite(p)
     p.set_defaults(func=_cmd_easypqp_to_specset)
 
     p = subparsers.add_parser("diannlib_to_specset", help="Convert a DIA-NN parquet library to a specset")
     p.add_argument("diannlib_file", help="DIA-NN library parquet file")
     p.add_argument("out_dir", help="Output specset directory")
     _add_max_files(p)
-    _add_overwrite(p)
     p.set_defaults(func=_cmd_diannlib_to_specset)
 
-    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to a specset, or one specset per run")
+    p = subparsers.add_parser("diannreport_to_specset", help="Convert a DIA-NN parquet report to a specset")
     p.add_argument("diannreport", help="DIA-NN report parquet file")
-    p.add_argument("out_dir", help="Output specset directory; with --by-Run, the directory in which one <Run>.specset is created per run")
+    p.add_argument("out_dir", help="Output specset directory")
     _add_max_files(p)
-    p.add_argument("--by-Run", dest="by_Run", action="store_true", help="Create one specset per run (default: one specset with all runs)")
-    p.add_argument("--column", default="", help="Report column to select rows on, e.g. 'Run' (default: import all rows)")
-    p.add_argument("--values", nargs="+", default=[], metavar="VALUE",
-                   help="With --column, import only the rows whose value in that column is one of these, e.g. --values plasma1 plasma2")
-    p.add_argument("--overwrite", action="store_true",
-                   help="Delete an output specset first if it exists and is not empty (default: fail)")
+    p.add_argument("--string-equal", action="append", default=[], type=_key_value, metavar="COLUMN=VALUE",
+                   help="Keep only rows whose COLUMN equals VALUE, compared as text; repeat for more values, "
+                        "e.g. --string-equal Run=plasma1 --string-equal Run=plasma2")
+    p.add_argument("--string-not-equal", action="append", default=[], type=_key_value, metavar="COLUMN=VALUE",
+                   help="Drop rows whose COLUMN equals VALUE, compared as text (repeatable)")
+    p.add_argument("--double-less", action="append", default=[], type=_key_number, metavar="COLUMN=NUMBER",
+                   help="Keep only rows whose COLUMN is less than or equal to NUMBER, e.g. --double-less Q.Value=0.01 (repeatable)")
+    p.add_argument("--double-greater", action="append", default=[], type=_key_number, metavar="COLUMN=NUMBER",
+                   help="Keep only rows whose COLUMN is greater than or equal to NUMBER (repeatable)")
     p.set_defaults(func=_cmd_diannreport_to_specset)
 
     p = subparsers.add_parser("psmlist_to_specset", help="Convert a list of files containing stripped MaxQuant PSMs to a specset")
     p.add_argument("psmlist_file", help="Text file with one PSM file path per line")
     p.add_argument("out_dir", help="Output specset directory")
     _add_max_files(p)
-    _add_overwrite(p)
     p.set_defaults(func=_cmd_psmlist_to_specset)
 
     p = subparsers.add_parser("specset_to_speclib", help="Convert a specset to a spectral library TSV")
@@ -148,7 +154,6 @@ def main():
     p.add_argument("specset_b", help="Secondary specset directory (left unchanged)")
     p.add_argument("specset_out", help="Output specset directory")
     _add_merge_options(p)
-    _add_overwrite(p)
     p.set_defaults(func=_cmd_merge_specsets)
 
     p = subparsers.add_parser("summarize", help="Print summary statistics for one or two specsets")

@@ -555,35 +555,40 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
     print("\nDone.")
 
 
-def diannreport_to_specset(diannreport: str, out_dir: str, column: str = "", values: List[str] = [], max_no_files_per_directory: int = 5000, overwrite: bool = False, by_Run: bool = False) -> None:
+def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False,
+                           string_equal: Dict[str, List[str]] = {}, string_not_equal: Dict[str, List[str]] = {},
+                           double_less: Dict[str, float] = {}, double_greater: Dict[str, float] = {}) -> None:
     """
-    Convert a DIA-NN report parquet file to a specset, or to one specset per run.
+    Convert a DIA-NN report parquet file to a specset.
 
-    The report is read once. Each row (one precursor in one run) becomes one PSM. With by_Run,
-    the PSMs of each run go to their own specset, out_dir/<Run>.specset, where the characters
-    / \\ : * ? " < > | and whitespace in the run name are replaced by "_" (and _2, _3, ... is
-    added if two runs get the same name). Fragments are taken from the Fr.N.Id and
-    Fr.N.Quantity columns, e.g. "y8-unknown^1/816.403259"; fragments with an empty id or a
-    zero quantity are skipped. Decoy rows are skipped.
+    The report is read once. Each row (one precursor in one run) that passes the filters becomes
+    one PSM. Fragments are taken from the Fr.N.Id and Fr.N.Quantity columns, e.g.
+    "y8-unknown^1/816.403259"; fragments with an empty id or a zero quantity are skipped.
+    Decoy rows are skipped.
 
     Parameters
     ----------
     diannreport : str
         Path to the DIA-NN report parquet file.
     out_dir : str
-        Output specset directory; with by_Run, the directory in which one <Run>.specset is created per run.
-    column : str, optional
-        Report column to select rows on, e.g. "Run". Default is "" (import all rows).
-    values : list of str, optional
-        With column, import only the rows whose value in column is one of these values
-        (compared as text).
+        Output specset directory.
     max_no_files_per_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
     overwrite : bool, optional
-        If True, delete an existing output specset before writing it. If False, raise
-        FileExistsError when an output specset exists and is not empty. Default is False.
-    by_Run : bool, optional
-        If True, create one specset per run in out_dir. Default is False (one specset with all runs).
+        If True, delete an existing out_dir before writing. If False, raise
+        FileExistsError when out_dir exists and is not empty. Default is False.
+    string_equal : dict, optional
+        {column: values}: keep only the rows whose value in column is one of values
+        (compared as text), e.g. {"Run": ["plasma1", "plasma2"]}. A single string is also accepted.
+    string_not_equal : dict, optional
+        {column: values}: drop the rows whose value in column is one of values (compared as text).
+    double_less : dict, optional
+        {column: threshold}: keep only the rows whose value in column, read as a double, is less
+        than or equal to threshold, e.g. {"Q.Value": 0.01}.
+    double_greater : dict, optional
+        {column: threshold}: keep only the rows whose value in column, read as a double, is
+        greater than or equal to threshold.
+        Rows with a missing or non-numeric value fail the double filters.
 
     Returns
     -------
@@ -597,46 +602,49 @@ def diannreport_to_specset(diannreport: str, out_dir: str, column: str = "", val
     total_rows = pf.metadata.num_rows
     print(f"Total rows: {total_rows}")
 
+    def as_set(v):
+        return {str(v)} if isinstance(v, str) else {str(x) for x in v}
+
+    string_equal = {key: as_set(v) for key, v in string_equal.items()}
+    string_not_equal = {key: as_set(v) for key, v in string_not_equal.items()}
+
     n_frags = sum(1 for name in pf.schema_arrow.names if re.fullmatch(r"Fr\.\d+\.Id", name))
     columns = ["Run", "Modified.Sequence", "Precursor.Charge", "RT", "IM", "Q.Value", "Decoy", "Ms2.Scan", "Protein.Ids", "Genes"]
     columns += [f"Fr.{i}.{field}" for i in range(n_frags) for field in ("Id", "Quantity")]
-    if column:
-        if column not in pf.schema_arrow.names:
-            raise ValueError(f"column '{column}' not found in {diannreport}")
-        if column not in columns:
-            columns.append(column)
-        selected = {str(v) for v in values}
+    for key in [*string_equal, *string_not_equal, *double_less, *double_greater]:
+        if key not in pf.schema_arrow.names:
+            raise ValueError(f"column '{key}' not found in {diannreport}")
+        if key not in columns:
+            columns.append(key)
+
+    def keep(chunk):
+        """Boolean mask of the rows of chunk that pass all filters."""
+        mask = pd.Series(True, index=chunk.index)
+        for key, v in string_equal.items():
+            mask &= chunk[key].astype(str).isin(v)
+        for key, v in string_not_equal.items():
+            mask &= ~chunk[key].astype(str).isin(v)
+        for key, v in double_less.items():
+            mask &= pd.to_numeric(chunk[key], errors="coerce") <= float(v)
+        for key, v in double_greater.items():
+            mask &= pd.to_numeric(chunk[key], errors="coerce") >= float(v)
+        return mask
 
     # fragment id: type, number, loss, charge, m/z, e.g. "y8-unknown^1/816.403259"
     frag_id_pattern = re.compile(r"^([a-z])(\d+)-([^^]+)\^(\d+)/")
     loss_to_mq = {"unknown": "", "noloss": "", "H3PO4": "*", "NH3": "-NH3", "H2O": "-H2O"}
 
-    out_path = Path(out_dir)
-    writers = {}  # run (None without by_Run) -> _specset_writer
-    used_names = set()
-
-    def specset_name(run):
-        """Specset directory name for a run: special characters replaced by '_', made unique."""
-        name = re.sub(r'[\\/:*?"<>|\s]', "_", str(run))
-        unique, n = name, 1
-        while unique in used_names:
-            n += 1
-            unique = f"{name}_{n}"
-        used_names.add(unique)
-        return f"{unique}.specset"
-
-    if not by_Run:
-        writers[None] = _specset_writer(out_path, max_no_files_per_directory, overwrite=overwrite)
+    writer = _specset_writer(out_dir, max_no_files_per_directory, overwrite=overwrite)
     rows_done = 0
 
     try:
         for batch in pf.iter_batches(batch_size=10000, columns=columns):
             chunk = batch.to_pandas()
+            rows_done += len(chunk)
+            chunk = chunk[keep(chunk)]
             for row_values in chunk.itertuples(index=False, name=None):
                 row = dict(zip(columns, row_values))
                 if row["Decoy"]:
-                    continue
-                if column and str(row[column]) not in selected:
                     continue
 
                 matches = []
@@ -657,36 +665,25 @@ def diannreport_to_specset(diannreport: str, out_dir: str, column: str = "", val
                 if not matches:
                     continue
 
-                run = row["Run"]
-                key = run if by_Run else None
-                if key not in writers:
-                    print()
-                    writers[key] = _specset_writer(out_path / specset_name(run), max_no_files_per_directory, overwrite=overwrite)
-
-                writers[key].add({
+                writer.add({
                     "pep":         row["Modified.Sequence"],
                     "z":           row["Precursor.Charge"],
                     "rt":          row["RT"],
                     "im":          row["IM"],
                     "matches":     ";".join(matches),
                     "intensities": ";".join(intensities),
-                    "run":         run,
+                    "run":         row["Run"],
                     "scan":        row["Ms2.Scan"],
                     "qvalue":      row["Q.Value"],
                     "proteins":    row["Protein.Ids"],
                     "genes":       row["Genes"],
                 })
 
-            rows_done += len(chunk)
             print(f"  {rows_done}/{total_rows} rows ({100*rows_done//total_rows}%)", end="\r")
     finally:
-        for writer in writers.values():
-            writer.close()
+        writer.close()
 
-    if by_Run:
-        print(f"\nDone. {len(writers)} specsets written to {out_path}")
-    else:
-        print(f"\nDone. Specset written to {out_path}")
+    print(f"\nDone. Specset written to {out_dir}")
 
 
 def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
