@@ -35,7 +35,8 @@ LINES = "lines"            # one value per line -> list of str
 _INT_MAX = 2**31 - 1
 
 # Each command: utils function name, title, description, and fields as
-# (keyword argument, label, kind, options).
+# (keyword argument, label, kind, options). Optional "prepare": name of a function in this
+# module that turns the form values into the keyword arguments of the utils function.
 COMMANDS = [
     {
         "func": "maxquant_to_specset",
@@ -47,7 +48,7 @@ COMMANDS = [
             ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "msms.txt column=specset name, one per line\ne.g. Gene Names=genes",
                                                                        "default": "Score=score\nProteins=proteins\nGene Names=genes"}),
             ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("n", "Max rows (-1 = all)", INT, {"default": -1, "min": -1}),            
+            ("n", "Max rows (-1 = all)", INT, {"default": -1, "min": -1}),
         ],
     },
     {
@@ -57,7 +58,7 @@ COMMANDS = [
         "fields": [
             ("easypqp_file", "EasyPQP library", FILE, {"filter": "TSV files (*.tsv *.txt);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),            
+            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
         ],
     },
     {
@@ -67,7 +68,7 @@ COMMANDS = [
         "fields": [
             ("diannlib_file", "DIA-NN library", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),            
+            ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
         ],
     },
     {
@@ -77,22 +78,35 @@ COMMANDS = [
         "fields": [
             ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("double_less", "NUMERIC keep if less than or equal to", KEY_VALUES, {"number": True,
-                                                             "default": "Q.Value=0.01\nPG.Q.Value=0.05\nLib.Peptidoform.Q.Value=0.01\n"
-                                                                        "Global.Q.Value=0.01\nGlobal.PG.Q.Value=0.01",
-                                                             "placeholder": "column=number, one per line (optional)\ne.g. Q.Value=0.01",
-                                                             "tooltip": "Keep only rows whose column, read as a number, is less than or equal to the number."}),
-            ("double_greater", "NUMERIC keep if greater than or equal to", KEY_VALUES, {"number": True,
-                                                                   "placeholder": "column=number, one per line (optional)",
-                                                                   "tooltip": "Keep only rows whose column, read as a number, is greater than or equal to the number."}),
-            ("string_equal", "STRING keep if equal", KEY_VALUES, {"multi": True,
-                                                          "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
-                                                          "tooltip": "Keep only rows whose column equals one of the values, compared as text."}),
-            ("string_not_equal", "STRING drop if equal", KEY_VALUES, {"multi": True,
-                                                              "placeholder": "column=value, one per line (optional)",
-                                                              "tooltip": "Drop rows whose column equals one of the values, compared as text."}),
+            ("column", "Select rows on column", TEXT, {"placeholder": "Optional, e.g. Run",
+                                                      "tooltip": "Report column to select rows on. Leave empty to import all rows."}),
+            ("values", "Column values", LINES, {"placeholder": "One value per line, e.g.\nplasma1\nplasma2", "required_with": "column",
+                                               "tooltip": "Import only the rows whose value in the column above is one of these."}),
+            ("string_equal", "STRING keep if equal", KEY_VALUES, {
+                "multi": True,
+                "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
+                "tooltip": "Keep only rows whose column equals one of the values, compared as text.",
+            }),
+            ("string_not_equal", "STRING drop if equal", KEY_VALUES, {
+                "multi": True,
+                "placeholder": "column=value, one per line (optional)",
+                "tooltip": "Drop rows whose column equals one of the values, compared as text.",
+            }),
+            ("double_less", "NUMERIC keep if less than or equal to", KEY_VALUES, {
+                "number": True,
+                "default": "Q.Value=0.01\nPG.Q.Value=0.05\nLib.Peptidoform.Q.Value=0.01\n"
+                           "Global.Q.Value=0.01\nGlobal.PG.Q.Value=0.01",
+                "placeholder": "column=number, one per line (optional)\ne.g. Q.Value=0.01",
+                "tooltip": "Keep only rows whose column, read as a number, is less than or equal to the number.",
+            }),
+            ("double_greater", "NUMERIC keep if greater than or equal to", KEY_VALUES, {
+                "number": True,
+                "placeholder": "column=number, one per line (optional)",
+                "tooltip": "Keep only rows whose column, read as a number, is greater than or equal to the number.",
+            }),
             ("max_no_files_per_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
         ],
+        "prepare": "_column_values_to_string_equal",
     },
     {
         "func": "psmlist_to_specset",
@@ -101,7 +115,7 @@ COMMANDS = [
         "fields": [
             ("psmlist_file", "PSM list file", FILE, {"filter": "Text files (*.txt *.tsv);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),            
+            ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
         ],
     },
     {
@@ -224,8 +238,6 @@ class _CommandPage(QWidget):
             elif kind == BOOL:
                 w = QCheckBox()
                 w.setChecked(opts.get("default", False))
-                if name == "overwrite":
-                    w.setToolTip("Delete the output first if it exists and is not empty. If unchecked, a non-empty output is an error.")
             elif kind == KEY_VALUES:
                 w = QPlainTextEdit()
                 w.setPlaceholderText(opts.get("placeholder", "KEY=VALUE, one per line"))
@@ -309,13 +321,6 @@ class _CommandPage(QWidget):
                 raise ValueError(f"Please fill in '{self._label(name)}' when '{self._label(other)}' is given.")
         return kwargs
 
-    def output_dir(self, kwargs):
-        """Return (output directory, whether it is a parent of the output specsets), or (None, False)."""
-        for name, (kind, opts, _) in self.widgets.items():
-            if kind == OUT_DIR:
-                return kwargs.get(name), opts.get("parent", False) or bool(kwargs.get(opts.get("parent_if", "")))
-        return None, False
-
     def _label(self, name):
         return next(label for n, label, _, _ in self.command["fields"] if n == name)
 
@@ -325,7 +330,20 @@ class _CommandPage(QWidget):
         except ValueError as e:
             QMessageBox.warning(self, "Invalid input", str(e))
             return
+        prepare = self.command.get("prepare")
+        if prepare:
+            kwargs = globals()[prepare](kwargs)
         self.run_requested.emit(self.command["func"], kwargs)
+
+
+def _column_values_to_string_equal(kwargs):
+    """Turn the GUI's column and values fields into a string_equal filter; both filters must hold if both are given."""
+    column = kwargs.pop("column")
+    values = kwargs.pop("values")
+    if column:
+        string_equal = kwargs["string_equal"]
+        string_equal[column] = [v for v in string_equal[column] if v in values] if column in string_equal else values
+    return kwargs
 
 
 class _Stream(QObject):
@@ -1626,16 +1644,6 @@ class _ToolsWidget(QWidget):
     def _run(self, func_name, kwargs):
         if self.thread is not None:
             return
-
-        out_dir, is_parent = self.pages.currentWidget().output_dir(kwargs)
-        if kwargs.get("overwrite") and out_dir and Path(out_dir).is_dir() and any(Path(out_dir).iterdir()):
-            if is_parent:
-                message = f"{out_dir}\n\nis not empty. Existing specsets in it with the same name as an output specset will be deleted. Continue?"
-            else:
-                message = f"{out_dir}\n\nexists and is not empty. All of its contents will be deleted. Continue?"
-            answer = QMessageBox.question(self, "Overwrite output?", message)
-            if answer != QMessageBox.StandardButton.Yes:
-                return
 
         self._set_running(True)
         self._append_log(f"\n=== {func_name}({', '.join(f'{k}={v!r}' for k, v in kwargs.items())})\n")
