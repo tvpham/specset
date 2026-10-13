@@ -1,9 +1,6 @@
-# [{ uv }]
-# requires-python = "==3.12.*"
-
-pandas==3.0.6
+pandas==2.2.3
 psm_utils==1.5.5
-pyarrow==26.0.0
-PySide6==6.12.0
+pyarrow==25.0.1
+PySide6==6.11.2
 pyteomics==4.7.5
 pytest

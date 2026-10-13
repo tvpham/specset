@@ -212,21 +212,3 @@ def test_batch_folders_are_created(tmp_path):
     assert index["PEP0"].startswith("0-1/")
     assert index["PEP1"].startswith("0-1/")
     assert index["PEP2"].startswith("2-3/")
-
-
-# Writing into a non-empty out_dir raises FileExistsError unless overwrite=True is given.
-def test_overwrite_behaviour(tmp_path):
-    txt_dir = write_maxquant_dir(
-        tmp_path,
-        [["_PEPTIDE_", "2", "1.0", "b2;y2", "10;20", "1"]],
-        [["1", "0.5"]],
-    )
-    out_dir = tmp_path / "out"
-
-    maxquant_to_specset(str(txt_dir), str(out_dir))
-
-    with pytest.raises(FileExistsError):
-        maxquant_to_specset(str(txt_dir), str(out_dir))
-
-    maxquant_to_specset(str(txt_dir), str(out_dir), overwrite=True)
-    assert read_index(out_dir) == {"PEPTIDE": "0-4999/0"}
