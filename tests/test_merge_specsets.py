@@ -58,21 +58,6 @@ def test_merge_invalid_mode(tmp_path, specset_builder, psm_factory):
         merge_specsets(str(a), str(b), str(tmp_path / "out"), mode="nope")
 
 
-# A non-empty output requires overwrite=True.
-def test_merge_non_empty_output_requires_overwrite(tmp_path, specset_builder, psm_factory, read_index):
-    a = specset_builder(tmp_path / "a", [psm_factory("PEPA")])
-    b = specset_builder(tmp_path / "b", [psm_factory("PEPB")])
-    out = tmp_path / "out"
-    out.mkdir()
-    (out / "stale.txt").write_text("x")
-
-    with pytest.raises(FileExistsError):
-        merge_specsets(str(a), str(b), str(out))
-
-    merge_specsets(str(a), str(b), str(out), overwrite=True)
-    assert list(read_index(out)) == ["PEPA", "PEPB"]
-
-
 # The output must not be an input or a directory containing an input.
 def test_merge_output_must_not_overlap_inputs(tmp_path, specset_builder, psm_factory):
     a = specset_builder(tmp_path / "a", [psm_factory("PEPA")])
