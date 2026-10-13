@@ -969,6 +969,13 @@ class _PsmPanel(QGroupBox):
         self.psm_view, self.psm_proxy = _make_table(self.psm_model)
         self.field_model = _TableModel(_FIELD_HEADERS)
         self.field_view, _ = _make_table(self.field_model, sortable=False)
+        for view in (self.psm_view, self.field_view):
+            view.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.psm_view.horizontalHeader().setHighlightSections(False)  # no bold "File" when a row is selected
+        # File column just wide enough for a 7-digit file name; Field column for 9 digits
+        self._name_width = self.psm_view.fontMetrics().horizontalAdvance("0000000") + 8
+        self._field_width = self.field_view.fontMetrics().horizontalAdvance("000000000") + 8
+        self.field_view.setColumnWidth(0, self._field_width)
         self.frag_model = _TableModel(_FRAGMENT_HEADERS)
         self.frag_view, _ = _make_table(self.frag_model)
         self.psm_view.selectionModel().currentRowChanged.connect(self._on_psm_selected)
@@ -977,8 +984,7 @@ class _PsmPanel(QGroupBox):
         tables.addWidget(self.psm_view)
         tables.addWidget(self.field_view)
         tables.addWidget(self.frag_view)
-        # PSM list just wide enough for an 8-digit file name
-        psm_width = (self.psm_view.fontMetrics().horizontalAdvance("00000000") + 16 + 2 * self.psm_view.frameWidth()
+        psm_width = (self._name_width + 2 * self.psm_view.frameWidth()
                      + self.psm_view.verticalScrollBar().sizeHint().width())
         tables.setSizes([psm_width, 330, 500])
 
@@ -1051,7 +1057,7 @@ class _PsmPanel(QGroupBox):
                           f"<span style='color:gray'>{html.escape(str(psm_path))}</span>")
         self.field_model.set_rows(_field_rows(psm, frags))
         self.frag_model.set_rows(_fragment_rows(frags))
-        self.field_view.resizeColumnToContents(0)
+        self.field_view.setColumnWidth(0, self._field_width)  # a model reset can restore the default width
         self.psm = psm
         self.psm_path = psm_path
         self.fragments_changed.emit(frags)
@@ -1063,7 +1069,7 @@ class _PsmPanel(QGroupBox):
 
 
 class _ChargeBox(QGroupBox):
-    """Charges of the selected peptide, with a description on top; emits the selected charge (None when cleared)."""
+    """Charges of the selected peptide, with an error message on top when there is one; emits the selected charge (None when cleared)."""
 
     charge_selected = Signal(object)
 
@@ -1071,23 +1077,26 @@ class _ChargeBox(QGroupBox):
         super().__init__(title, parent)
         self.label = QLabel()
         self.label.setWordWrap(True)
+        self.label.hide()  # shown only for an error message
         self.model = _TableModel(["Charge"])
         self.view, self.proxy = _make_table(self.model)
+        self.view.horizontalHeader().hide()
         self.view.selectionModel().currentRowChanged.connect(self._on_selected)
         layout = QVBoxLayout(self)
         layout.addWidget(self.label)
         layout.addWidget(self.view)
 
-    def set_charges(self, charges, description):
+    def set_charges(self, charges):
         """Show the charges and select the first one."""
         self.model.set_rows([(str(z), z) for z in charges])  # shown as text; the charge itself is emitted
-        self.label.setText(description)
+        self.label.hide()
         if charges:
             self.view.selectRow(0)
 
     def clear(self, description=""):
         self.model.set_rows([])
         self.label.setText(description)
+        self.label.setVisible(bool(description))
 
     def _on_selected(self, current, previous):
         if not current.isValid():
@@ -1285,7 +1294,7 @@ class _ViewerWidget(QWidget):
             self._clear_charges(f"Cannot read __index.tsv: {e}")
             return
         self.location_path = location_path
-        self.charge_box.set_charges(charges, f"{len(charges)} charges")
+        self.charge_box.set_charges(charges)
 
     def _on_charge_selected(self, charge):
         if charge is None or self.location_path is None:
@@ -1521,7 +1530,7 @@ class _CompareViewerWidget(QWidget):
             return
         common = sorted(charges[0] & charges[1])
         self.current_pep = pep
-        self.charge_box.set_charges(common, f"{len(common)} common")
+        self.charge_box.set_charges(common)
 
     def _on_charge_selected(self, charge):
         if charge is None or self.current_pep is None:
