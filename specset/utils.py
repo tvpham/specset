@@ -161,13 +161,10 @@ class _specset_writer:
 
     _CORE_KEYS = {"pep", "z", "rt", "im", "matches", "intensities"}
 
-    def __init__(self, out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000, overwrite: bool = False) -> None:
+    def __init__(self, out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000) -> None:
         self.out_path = Path(out_dir)
         if self.out_path.exists() and any(self.out_path.iterdir()):
-            if not overwrite:
-                raise FileExistsError(f"out_dir is not empty: {self.out_path}")
-            print(f"Output path exists. Removing {self.out_path}...")
-            shutil.rmtree(self.out_path)
+            raise FileExistsError(f"out_dir is not empty: {self.out_path}")
         print(f"Creating {self.out_path}...")
         self.out_path.mkdir(parents=True, exist_ok=True)
 
@@ -248,7 +245,7 @@ class _specset_writer:
                 f.write(f"{key}\t{value}\n")
 
 
-def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000, overwrite: bool = False) -> None:
+def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max_files_in_directory: int = 5000, max_intensity: float = -1.0, flush_threshold: int = 1000) -> None:
     """
     Write a stream of PSMs to the specset directory format.
     
@@ -264,22 +261,20 @@ def _psm_stream_to_specset(psm_iter: Iterable[Dict[str, Any]], out_dir: str, max
         Max intensity for normalization. Default is -1.0 (no normalization).
     flush_threshold : int, optional
         Number of PSMs to buffer before flushing to disk. Default is 1000.
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
     None
         Writes directly to disk.
     """
-    writer = _specset_writer(out_dir, max_files_in_directory, max_intensity, flush_threshold, overwrite)
+
+    writer = _specset_writer(out_dir, max_files_in_directory, max_intensity, flush_threshold)
     for psm in psm_iter:
         writer.add(psm)
     writer.close()
 
 
-def psm_utils_to_specset(msms_file: str, out_dir: str, evidence_file: Optional[str] = None, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
+def psm_utils_to_specset(msms_file: str, out_dir: str, evidence_file: Optional[str] = None, max_files_in_directory: int = 5000) -> None:
     """
     Read a MaxQuant msms.txt file and write it to the specset directory format.
 
@@ -293,9 +288,6 @@ def psm_utils_to_specset(msms_file: str, out_dir: str, evidence_file: Optional[s
         Path to an optional evidence.txt file to extract ion mobility (1/K0).
     max_files_in_directory : int, optional
         Maximum number of PSMs per folder batch. Default is 5000.
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -330,10 +322,10 @@ def psm_utils_to_specset(msms_file: str, out_dir: str, evidence_file: Optional[s
                 "intensities": psm.metadata["Intensities"],
             }
 
-    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory, overwrite=overwrite)
+    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory)
 
 
-def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str, str] = {}, max_files_in_directory: int = 5000, n: int = -1, overwrite: bool = False) -> None:
+def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str, str] = {}, max_files_in_directory: int = 5000, n: int = -1) -> None:
     """
     Read MaxQuant msms.txt and evidence.txt files and write to specset format.
 
@@ -350,9 +342,6 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
         Max number of PSMs per batch folder. Default is 5000.
     n : int, optional
         Maximum number of rows to process. Default is -1 (all rows).
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -406,13 +395,13 @@ def maxquant_to_specset(txt_dir: str, out_dir: str, additional_columns: Dict[str
                 d[d_key] = getattr(psm, msms_col.replace(" ", "_"), None)
             yield d
 
-    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory, overwrite=overwrite)
+    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory)
 
     print(f"n = {n_rows}")
     print("Done.")
 
 
-def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
+def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directory: int = 5000) -> None:
     """
     Convert an EasyPQP formatted file to the specset directory format.
 
@@ -424,15 +413,13 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
         Output specset directory path.
     max_no_files_per_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
     None
         Writes directly to disk.
     """
+
     df = pd.read_csv(easypqp_file, sep="\t", usecols=["ModifiedPeptideSequence", "PrecursorCharge", "FragmentLossType", "FragmentSeriesNumber", "FragmentType", "FragmentCharge", "LibraryIntensity", "NormalizedRetentionTime", "PrecursorIonMobility", "ProteinId", "GeneName"])
     total_rows = len(df)
     print(f"Total rows: {total_rows}")
@@ -468,12 +455,12 @@ def easypqp_to_specset(easypqp_file: str, out_dir: str, max_no_files_per_directo
                 print(f"  {rows_done}/{total_rows} rows ({100*rows_done//total_rows}%)", end="\r")
                 next_report += report_step
 
-    _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory, overwrite=overwrite)
+    _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory)
 
     print("\nDone.")
 
 
-def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False) -> None:
+def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_directory: int = 5000) -> None:
     """
     Convert a DIA-NN library parquet file to the specset directory format.
 
@@ -485,9 +472,6 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
         Output specset directory path.
     max_no_files_per_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -550,12 +534,12 @@ def diannlib_to_specset(diannlib_file: str, out_dir: str, max_no_files_per_direc
         if current_rows:
             yield _yield_group(current_rows)        
 
-    _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory, overwrite=overwrite)
+    _psm_stream_to_specset(psm_iter(), out_dir, max_no_files_per_directory)
     
     print("\nDone.")
 
 
-def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000, overwrite: bool = False,
+def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_directory: int = 5000,
                            string_equal: Dict[str, List[str]] = {}, string_not_equal: Dict[str, List[str]] = {},
                            double_less: Dict[str, float] = {}, double_greater: Dict[str, float] = {}) -> None:
     """
@@ -574,9 +558,6 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
         Output specset directory.
     max_no_files_per_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
     string_equal : dict, optional
         {column: values}: keep only the rows whose value in column is one of values
         (compared as text), e.g. {"Run": ["plasma1", "plasma2"]}. A single string is also accepted.
@@ -634,7 +615,7 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
     frag_id_pattern = re.compile(r"^([a-z])(\d+)-([^^]+)\^(\d+)/")
     loss_to_mq = {"unknown": "", "noloss": "", "H3PO4": "*", "NH3": "-NH3", "H2O": "-H2O"}
 
-    writer = _specset_writer(out_dir, max_no_files_per_directory, overwrite=overwrite)
+    writer = _specset_writer(out_dir, max_no_files_per_directory)
     rows_done = 0
 
     try:
@@ -686,7 +667,7 @@ def diannreport_to_specset(diannreport: str, out_dir: str, max_no_files_per_dire
     print(f"\nDone. Specset written to {out_dir}")
 
 
-def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000, overwrite: bool = False) -> None:
+def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: int = 5000) -> None:
     """
     Read a list of files containing stripped MaxQuant PSMs and write to specset format.
 
@@ -698,9 +679,6 @@ def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: 
         Output specset directory path.
     max_files_in_directory : int, optional
         Maximum number of files per batch directory. Default is 5000.
-    overwrite : bool, optional
-        If True, delete an existing out_dir before writing. If False, raise
-        FileExistsError when out_dir exists and is not empty. Default is False.
 
     Returns
     -------
@@ -727,7 +705,7 @@ def psmlist_to_specset(psmlist_file: str, out_dir: str, max_files_in_directory: 
                         "intensities": psm.Intensities,
                     }
 
-    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory, overwrite=overwrite)
+    _psm_stream_to_specset(psm_iter(), out_dir, max_files_in_directory)
     print("Done.")
 
 
@@ -1124,7 +1102,7 @@ def _specset_to_string(specset_dir: str, scratch: Optional[int] = None) -> io.St
     return string_buffer
 
 
-def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "ignore", flush_threshold: int = 1000, overwrite: bool = False) -> None:
+def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_in_directory: int = 5000, mode: str = "ignore", flush_threshold: int = 1000) -> None:
     """
     Merge specset_a and specset_b into a new specset at specset_out.
 
@@ -1146,15 +1124,13 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         'ignore' : for overlapping ones, keep PSMs in specset_a, skip the ones from specset_b. Default is 'ignore'.
     flush_threshold : int, optional
         Number of PSMs to buffer before flushing to disk. Default is 1000.
-    overwrite : bool, optional
-        If True, delete an existing specset_out before writing. If False, raise
-        FileExistsError when specset_out exists and is not empty. Default is False.
 
     Returns
     -------
     None
         Writes directly to disk in specset_out.
     """
+
     if mode not in ("both", "ignore"):
         raise ValueError(f"mode must be 'both' or 'ignore', got {mode!r}")
 
@@ -1166,10 +1142,7 @@ def merge_specsets(specset_a: str, specset_b: str, specset_out: str, max_files_i
         if path.resolve() == out_path.resolve() or out_path.resolve() in path.resolve().parents:
             raise ValueError(f"specset_out must not be or contain an input specset: {path}; use merge_specsets_inplace for in-place merging")
     if out_path.exists() and any(out_path.iterdir()):
-        if not overwrite:
-            raise FileExistsError(f"specset_out is not empty: {out_path}")
-        print(f"Removing {out_path}...")
-        shutil.rmtree(out_path)
+        raise FileExistsError(f"specset_out is not empty: {out_path}")
     out_path.mkdir(parents=True, exist_ok=True)
 
     locations_a = list(iter_specset_locations(specset_a))
