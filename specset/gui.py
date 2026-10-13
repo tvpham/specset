@@ -16,7 +16,7 @@ from PySide6.QtGui import QColor, QFont, QIcon, QPageLayout, QPageSize, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton,
-    QSpinBox, QSplitter, QStackedWidget, QTabWidget, QTableView, QVBoxLayout, QWidget,
+    QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QTabWidget, QTableView, QVBoxLayout, QWidget,
 )
 
 # Field kinds
@@ -35,8 +35,12 @@ LINES = "lines"            # one value per line -> list of str
 _INT_MAX = 2**31 - 1
 
 # Each command: utils function name, title, description, and fields as
-# (keyword argument, label, kind, options). Optional "prepare": name of a function in this
-# module that turns the form values into the keyword arguments of the utils function.
+# (keyword argument, label, kind, options). Layout options: "panel": "left", "middle" or "right"
+# puts a field in a column of the side-by-side Filters panel, label above the box; "lines": n
+# makes a text box n lines high; "stretch": True makes a text box fill the height of its panel
+# column. Optional "prepare": name of a
+# function in this module that turns the form values into the keyword arguments of the utils
+# function.
 COMMANDS = [
     {
         "func": "maxquant_to_specset",
@@ -48,7 +52,6 @@ COMMANDS = [
             ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "msms.txt column=specset name, one per line\ne.g. Gene Names=genes",
                                                                        "default": "Score=score\nProteins=proteins\nGene Names=genes"}),
             ("max_files_in_directory", "Files per folder", INT, {"default": 5000, "min": 1}),
-            ("n", "Max rows (-1 = all)", INT, {"default": -1, "min": -1}),
         ],
     },
     {
@@ -78,21 +81,24 @@ COMMANDS = [
         "fields": [
             ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("column", "Select rows on column", TEXT, {"placeholder": "Optional, e.g. Run",
+            ("column", "Select rows on column", TEXT, {"panel": "left", "placeholder": "Optional, e.g. Run",
                                                       "tooltip": "Report column to select rows on. Leave empty to import all rows."}),
-            ("values", "Column values", LINES, {"placeholder": "One value per line, e.g.\nplasma1\nplasma2", "required_with": "column",
+            ("values", "Column values", LINES, {"panel": "left", "stretch": True, "placeholder": "One value per line, e.g.\nplasma1\nplasma2", "required_with": "column",
                                                "tooltip": "Import only the rows whose value in the column above is one of these."}),
             ("string_equal", "STRING keep if equal", KEY_VALUES, {
+                "panel": "middle", "lines": 6,
                 "multi": True,
                 "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
                 "tooltip": "Keep only rows whose column equals one of the values, compared as text.",
             }),
             ("string_not_equal", "STRING drop if equal", KEY_VALUES, {
+                "panel": "middle", "lines": 6,
                 "multi": True,
                 "placeholder": "column=value, one per line (optional)",
                 "tooltip": "Drop rows whose column equals one of the values, compared as text.",
             }),
             ("double_less", "NUMERIC keep if less than or equal to", KEY_VALUES, {
+                "panel": "right", "lines": 6,
                 "number": True,
                 "default": "Q.Value=0.01\nPG.Q.Value=0.05\nLib.Peptidoform.Q.Value=0.01\n"
                            "Global.Q.Value=0.01\nGlobal.PG.Q.Value=0.01",
@@ -100,6 +106,7 @@ COMMANDS = [
                 "tooltip": "Keep only rows whose column, read as a number, is less than or equal to the number.",
             }),
             ("double_greater", "NUMERIC keep if greater than or equal to", KEY_VALUES, {
+                "panel": "right", "lines": 6,
                 "number": True,
                 "placeholder": "column=number, one per line (optional)",
                 "tooltip": "Keep only rows whose column, read as a number, is greater than or equal to the number.",
@@ -127,9 +134,9 @@ COMMANDS = [
             ("lib_name", "Output library", OUT_FILE, {"filter": "TSV files (*.tsv);;All files (*)"}),
             ("additional_columns", "Additional columns", KEY_VALUES, {"placeholder": "specset field=library column, one per line\ne.g. proteins=Protein.Ids",
                                                                        "default": "proteins=Protein.Ids\ngenes=Genes"}),
-            ("consensus_method", "Consensus method", CHOICE, {"choices": ["", "mean", "median"], "editable": True,
-                                                              "tooltip": "Empty: PSM with most fragments. 'mean', 'median', or a specset field to select the PSM with the max value."}),
-            ("n", "Max peptides", OPT_INT, {}),
+            ("consensus_method", "Consensus method", CHOICE, {"choices": ["", "mean", "median"], "default": "score", "editable": True,
+                                                              "placeholder": "Specify a specset field for max value, e.g. score, or leave empty for max number of fragments",
+                                                              "tooltip": "Empty: PSM with most fragments, mean, median, or a specset field for selection with the max value."}),
         ],
     },
     {
@@ -204,6 +211,19 @@ class _PathEdit(QWidget):
         return self.edit.text().strip()
 
 
+def _set_box_height(box, opts):
+    """Height of a text box: fills its panel column ("stretch"), n lines ("lines"), or 70 pixels."""
+    if opts.get("stretch"):
+        # ignore the box's own preferred height, so the other columns set the panel height
+        box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+        box.setMinimumHeight(70)
+    elif "lines" in opts:
+        lines_height = opts["lines"] * box.fontMetrics().lineSpacing()
+        box.setFixedHeight(math.ceil(lines_height + 2 * box.document().documentMargin() + 2 * box.frameWidth()))
+    else:
+        box.setFixedHeight(70)
+
+
 class _CommandPage(QWidget):
     """Form for one command."""
 
@@ -220,6 +240,9 @@ class _CommandPage(QWidget):
         layout.addWidget(title)
 
         form = QFormLayout()
+        panel_names = [p for p in ("left", "middle", "right") if any(o.get("panel") == p for *_, o in command["fields"])]
+        panels = None  # column layouts by panel name, created at the first field with a panel
+        stretched = set()  # panels with a box that fills the column height
         for name, label, kind, opts in command["fields"]:
             if kind in (DIR, FILE, OUT_DIR, OUT_FILE):
                 w = _PathEdit(kind, opts.get("filter", ""))
@@ -233,6 +256,8 @@ class _CommandPage(QWidget):
                 w = QComboBox()
                 w.addItems(opts["choices"])
                 w.setEditable(opts.get("editable", False))
+                if w.isEditable() and "placeholder" in opts:
+                    w.lineEdit().setPlaceholderText(opts["placeholder"])  # grayed-out tip while the box is empty
                 if "default" in opts:
                     w.setCurrentText(opts["default"])
             elif kind == BOOL:
@@ -242,20 +267,36 @@ class _CommandPage(QWidget):
                 w = QPlainTextEdit()
                 w.setPlaceholderText(opts.get("placeholder", "KEY=VALUE, one per line"))
                 w.setPlainText(opts.get("default", ""))
-                w.setFixedHeight(70)
+                _set_box_height(w, opts)
             elif kind == TEXT:
                 w = QLineEdit()
                 w.setPlaceholderText(opts.get("placeholder", ""))
             elif kind == LINES:
                 w = QPlainTextEdit()
                 w.setPlaceholderText(opts.get("placeholder", "One value per line"))
-                w.setFixedHeight(70)
+                _set_box_height(w, opts)
             else:
                 raise ValueError(f"unknown field kind: {kind}")
             if "tooltip" in opts:
                 w.setToolTip(opts["tooltip"])
             self.widgets[name] = (kind, opts, w)
-            form.addRow(label, w)
+            if "panel" in opts:
+                if panels is None:
+                    panels = {p: QVBoxLayout() for p in panel_names}
+                    columns = QHBoxLayout()
+                    for p in panel_names:
+                        columns.addLayout(panels[p], 1)  # equal widths
+                    form.addRow("Filters", columns)  # in the field column, aligned with the other boxes
+                panels[opts["panel"]].addWidget(QLabel(label))
+                panels[opts["panel"]].addWidget(w, 1 if opts.get("stretch") else 0)
+                if opts.get("stretch"):
+                    stretched.add(opts["panel"])
+            else:
+                form.addRow(label, w)
+        if panels is not None:
+            for p, panel in panels.items():
+                if p not in stretched:
+                    panel.addStretch()  # keep the columns top-aligned
         layout.addLayout(form)
 
         self.run_button = QPushButton("Run")

@@ -905,6 +905,11 @@ def _consensus(frag_dfs: List[pd.DataFrame], consensus_method: Optional[str] = N
     -------
     pd.DataFrame
         A single, merged DataFrame representing the consensus.
+
+    Raises
+    ------
+    ValueError
+        If consensus_method is a field that a PSM does not have.
     """
 
     if consensus_method == "mean" or consensus_method == "median":
@@ -919,7 +924,11 @@ def _consensus(frag_dfs: List[pd.DataFrame], consensus_method: Optional[str] = N
             if col not in group_cols and col != "RelativeIntensity":
                 agg[col] = meta[col]
         return agg
-    elif consensus_method is not None and consensus_method in frag_dfs[0].columns:
+    elif consensus_method is not None:
+        for df in frag_dfs:
+            if consensus_method not in df.columns or df[consensus_method].iloc[0] is None:
+                raise ValueError(f"field '{consensus_method}' does not exist in the specset "
+                                 f"(peptide {df['ModifiedPeptide'].iloc[0]}, charge {df['PrecursorCharge'].iloc[0]})")
         return max(frag_dfs, key=lambda df: float(df[consensus_method].iloc[0]))
     else:
         return max(frag_dfs, key=lambda df: len(df))
@@ -1005,8 +1014,10 @@ def specset_to_speclib(specset_dir: str, lib_name: str, additional_columns: Dict
             "PrecursorMz",
             "FragmentMz"] + list(additional_columns.values())
 
-    if consensus_method is not None and consensus_method not in ("mean", "median") and consensus_method not in cols:
-        cols.append(consensus_method)
+    # specset fields to read: the additional columns and the field used to select the consensus PSM
+    extra = list(additional_columns.keys())
+    if consensus_method is not None and consensus_method not in ("mean", "median") and consensus_method not in extra:
+        extra.append(consensus_method)
 
     index_path = specset_path / "_index.tsv"
     with open(index_path) as f:
@@ -1020,7 +1031,7 @@ def specset_to_speclib(specset_dir: str, lib_name: str, additional_columns: Dict
         
         for pep, location in iter_specset_locations(specset_dir, n):
             location_path = os.path.join(specset_dir, location)
-            for z, frag_dfs in _read_location(location_path, extra=list(additional_columns.keys())).items():
+            for z, frag_dfs in _read_location(location_path, extra=extra).items():
 
                 df = _consensus(frag_dfs, consensus_method)
                 pep_seq = _to_mz_seq(df.iloc[0]["ModifiedPeptide"])
