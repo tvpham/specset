@@ -38,7 +38,7 @@ _INT_MAX = 2**31 - 1
 # (keyword argument, label, kind, options). Layout options: "panel": "left", "middle" or "right"
 # puts a field in a column of the side-by-side Filters panel, label above the box; "lines": n
 # makes a text box n lines high; "stretch": True makes a text box fill the height of its panel
-# column. Optional "prepare": name of a
+# column; "emphasis": True shows the label in italic. Optional "prepare": name of a
 # function in this module that turns the form values into the keyword arguments of the utils
 # function.
 COMMANDS = [
@@ -81,24 +81,24 @@ COMMANDS = [
         "fields": [
             ("diannreport", "DIA-NN report", FILE, {"filter": "Parquet files (*.parquet);;All files (*)"}),
             ("out_dir", "Output specset", OUT_DIR, {}),
-            ("column", "Select rows on column", TEXT, {"panel": "left", "placeholder": "Optional, e.g. Run",
+            ("column", "Select rows on column", TEXT, {"panel": "left", "emphasis": True, "placeholder": "Optional, e.g. Run",
                                                       "tooltip": "Report column to select rows on. Leave empty to import all rows."}),
             ("values", "Column values", LINES, {"panel": "left", "stretch": True, "placeholder": "One value per line, e.g.\nplasma1\nplasma2", "required_with": "column",
                                                "tooltip": "Import only the rows whose value in the column above is one of these."}),
             ("string_equal", "STRING keep if equal", KEY_VALUES, {
-                "panel": "middle", "lines": 6,
+                "panel": "middle", "lines": 6, "emphasis": True,
                 "multi": True,
                 "placeholder": "column=value, one per line (optional)\ne.g. Run=plasma1\nRun=plasma2",
                 "tooltip": "Keep only rows whose column equals one of the values, compared as text.",
             }),
             ("string_not_equal", "STRING drop if equal", KEY_VALUES, {
-                "panel": "middle", "lines": 6,
+                "panel": "middle", "lines": 6, "emphasis": True,
                 "multi": True,
                 "placeholder": "column=value, one per line (optional)",
                 "tooltip": "Drop rows whose column equals one of the values, compared as text.",
             }),
             ("double_less", "NUMERIC keep if less than or equal to", KEY_VALUES, {
-                "panel": "right", "lines": 6,
+                "panel": "right", "lines": 6, "emphasis": True,
                 "number": True,
                 "default": "Q.Value=0.01\nPG.Q.Value=0.05\nLib.Peptidoform.Q.Value=0.01\n"
                            "Global.Q.Value=0.01\nGlobal.PG.Q.Value=0.01",
@@ -106,7 +106,7 @@ COMMANDS = [
                 "tooltip": "Keep only rows whose column, read as a number, is less than or equal to the number.",
             }),
             ("double_greater", "NUMERIC keep if greater than or equal to", KEY_VALUES, {
-                "panel": "right", "lines": 6,
+                "panel": "right", "lines": 6, "emphasis": True,
                 "number": True,
                 "placeholder": "column=number, one per line (optional)",
                 "tooltip": "Keep only rows whose column, read as a number, is greater than or equal to the number.",
@@ -286,8 +286,17 @@ class _CommandPage(QWidget):
                     columns = QHBoxLayout()
                     for p in panel_names:
                         columns.addLayout(panels[p], 1)  # equal widths
-                    form.addRow("Filters", columns)  # in the field column, aligned with the other boxes
-                panels[opts["panel"]].addWidget(QLabel(label))
+                    # QFormLayout gives a label next to a tall field extra height and centers the text in it;
+                    # top-align so "Filters" lines up with the column labels
+                    filters_label = QLabel("Filters")
+                    filters_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                    form.addRow(filters_label, columns)  # in the field column, aligned with the other boxes
+                panel_label = QLabel(label)
+                if opts.get("emphasis"):
+                    font = panel_label.font()
+                    font.setItalic(True)
+                    panel_label.setFont(font)
+                panels[opts["panel"]].addWidget(panel_label)
                 panels[opts["panel"]].addWidget(w, 1 if opts.get("stretch") else 0)
                 if opts.get("stretch"):
                     stretched.add(opts["panel"])
@@ -1834,6 +1843,7 @@ def main():
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("specset.gui")
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")  # same look on every OS; avoids the windows11 style's underlined text boxes
     if ICON_FILE.is_file():
         app.setWindowIcon(QIcon(str(ICON_FILE)))
     window = MainWindow()
