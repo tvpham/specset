@@ -7,6 +7,7 @@ name = "specset"
 version = "0.9.3"
 
 description = "Toolkit for manipulation of peptide-spectrum matches in mass spectrometry-based proteomics"
+readme = "description.md"
 
 authors = [
     { name = "Thang Pham", email = "tp210901@gmail.com" }
@@ -33,4 +34,3 @@ specset = ["unimod.xml", "favicon.ico"]
 
 [project.urls]
 Homepage = "https://github.com/tvpham/specset"
-Repository = "https://github.com/tvpham/specset.git"

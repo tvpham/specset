@@ -20,7 +20,7 @@ python -m venv venv_specset
 
 venv_specset\Scripts\activate.bat
 
-pip install "specset[full]"
+pip install specset[full]
 ```
 The ```full``` installation includes a GUI application. 
 
@@ -31,7 +31,7 @@ python -m venv venv_specset
 
 . venv_specset/bin/activate
 
-pip install "specset[full]"
+pip install specset[full]
 ```
 
 For the GUI application, one some Linux systems, the user has to install extra system libraries

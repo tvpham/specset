@@ -912,8 +912,13 @@ def _consensus(frag_dfs: List[pd.DataFrame], consensus_method: Optional[str] = N
         group_cols = ["FragmentLossType", "FragmentNumber", "FragmentType", "FragmentCharge"]
         agg = combined.groupby(group_cols, as_index=False)["RelativeIntensity"]
         agg = agg.mean() if consensus_method == "mean" else agg.median()
-        meta = frag_dfs[0].drop(columns=["RelativeIntensity"]).iloc[[0]]
-        return agg.merge(meta, on=group_cols, how="left")
+        # the other columns (peptide, charge, RT, IM, extra fields) are the same for all fragments
+        # of a PSM: copy them from the first PSM to every fragment
+        meta = combined.iloc[0]
+        for col in combined.columns:
+            if col not in group_cols and col != "RelativeIntensity":
+                agg[col] = meta[col]
+        return agg
     elif consensus_method is not None and consensus_method in frag_dfs[0].columns:
         return max(frag_dfs, key=lambda df: float(df[consensus_method].iloc[0]))
     else:
