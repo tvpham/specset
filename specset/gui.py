@@ -974,7 +974,7 @@ class _PsmPanel(QGroupBox):
         self.psm_view.horizontalHeader().setHighlightSections(False)  # no bold "File" when a row is selected
         # File column just wide enough for a 7-digit file name; Field column for 9 digits
         self._name_width = self.psm_view.fontMetrics().horizontalAdvance("0000000") + 8
-        self._field_width = self.field_view.fontMetrics().horizontalAdvance("000000000") + 8
+        self._field_width = self.field_view.fontMetrics().horizontalAdvance("0000000000") + 8
         self.field_view.setColumnWidth(0, self._field_width)
         self.frag_model = _TableModel(_FRAGMENT_HEADERS)
         self.frag_view, _ = _make_table(self.frag_model)

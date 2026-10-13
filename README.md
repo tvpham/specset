@@ -122,7 +122,7 @@ If you want to generate a PDF report of all proteins identified by a single pept
 <img src="images/excel.png" width="90%">
 </div>
 
-In **DIA-NN report &rarr; specset**, use Stripped.Sequence under ``` Select rows on column```, and copy and paste your selected peptides into the ```Column values```  to generate a specset.
+In **DIA-NN report &rarr; specset**, use ```Stripped.Sequence``` under ``` Select rows on column```, and copy and paste your selected peptides into the ```Column values```  to generate a specset.
 
 <div align="center">
 <img src="images/dianreport-to-specset-selection.png" width="90%">
