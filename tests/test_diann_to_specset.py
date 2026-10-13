@@ -135,30 +135,6 @@ def test_report_basic(tmp_path, read_index, read_psm_fields):
     ]
 
 
-# by_Run writes one specset per run, sanitizing characters not allowed in a path.
-def test_report_by_run(tmp_path, read_index):
-    rows = [report_row(run="run/1"), report_row(run="run 2", seq="PEPADK")]
-    path = write_parquet(tmp_path / "report.parquet", report_columns(2), rows)
-    out = tmp_path / "out"
-
-    diannreport_to_specset(str(path), str(out), by_Run=True)
-
-    assert read_index(out / "run_1.specset") == {"PEPTIDE": "0-4999/0"}
-    assert read_index(out / "run_2.specset") == {"PEPADK": "0-4999/0"}
-
-
-# Runs whose sanitized names collide get a numeric suffix.
-def test_report_by_run_unique_names(tmp_path):
-    rows = [report_row(run="a/b"), report_row(run="a\\b", seq="PEPADK")]
-    path = write_parquet(tmp_path / "report.parquet", report_columns(2), rows)
-    out = tmp_path / "out"
-
-    diannreport_to_specset(str(path), str(out), by_Run=True)
-
-    assert (out / "a_b.specset").is_dir()
-    assert (out / "a_b_2.specset").is_dir()
-
-
 # Decoy rows are skipped.
 def test_report_decoy_rows_skipped(tmp_path, read_index):
     rows = [report_row(seq="DECOY", decoy=True), report_row(seq="PEPADK")]
@@ -170,13 +146,13 @@ def test_report_decoy_rows_skipped(tmp_path, read_index):
     assert read_index(out) == {"PEPADK": "0-4999/0"}
 
 
-# column/values keep only the selected rows.
+# string_equal keeps only the selected rows.
 def test_report_column_filter(tmp_path, read_index):
     rows = [report_row(run="run1"), report_row(run="run2", seq="PEPADK")]
     path = write_parquet(tmp_path / "report.parquet", report_columns(2), rows)
     out = tmp_path / "out"
 
-    diannreport_to_specset(str(path), str(out), column="Run", values=["run1"])
+    diannreport_to_specset(str(path), str(out), string_equal={"Run": ["run1"]})
 
     assert read_index(out) == {"PEPTIDE": "0-4999/0"}
 
@@ -209,4 +185,4 @@ def test_report_missing_column_raises(tmp_path):
     path = write_parquet(tmp_path / "report.parquet", report_columns(2), [report_row()])
 
     with pytest.raises(ValueError):
-        diannreport_to_specset(str(path), str(tmp_path / "out"), column="NotAColumn")
+        diannreport_to_specset(str(path), str(tmp_path / "out"), string_equal={"NotAColumn": ["x"]})
