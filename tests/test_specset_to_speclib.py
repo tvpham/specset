@@ -208,13 +208,7 @@ def test_consensus_default_selects_psm_with_most_fragments(tmp_path, specset_bui
     assert {row["RT"] for row in rows} == {"2.0"}
 
 
-# Expects per-fragment means (b2 -> 200, y5 -> 300). Currently xfail: _consensus merges the
-# per-fragment averages against a single metadata row, so all but one fragment get NaN metadata
-# and specset_to_speclib crashes.
-@pytest.mark.xfail(
-    reason="mean/median consensus merges per-fragment averages with a single metadata row, "
-    "producing NaN metadata for all but one fragment (bug in _consensus)",
-)
+# Expects per-fragment means (b2 -> 200, y5 -> 300).
 def test_consensus_mean_averages_intensities(tmp_path, specset_builder, psm_factory):
     specset_dir = specset_builder(
         tmp_path / "specset",
@@ -232,11 +226,7 @@ def test_consensus_mean_averages_intensities(tmp_path, specset_builder, psm_fact
     assert intensities == {"2": "200.0", "5": "300.0"}
 
 
-# Expects per-fragment medians (b2 -> 300, y5 -> 400). Same xfail reason as the mean test.
-@pytest.mark.xfail(
-    reason="mean/median consensus merges per-fragment averages with a single metadata row, "
-    "producing NaN metadata for all but one fragment (bug in _consensus)",
-)
+# Expects per-fragment medians (b2 -> 300, y5 -> 400).
 def test_consensus_median_intensities(tmp_path, specset_builder, psm_factory):
     specset_dir = specset_builder(
         tmp_path / "specset",
